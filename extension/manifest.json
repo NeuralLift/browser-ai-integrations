@@ -22,6 +22,10 @@
     "default_title": "Open AI Assistant"
   },
   
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com"
+  },
+
   "background": {
     "service_worker": "background.js"
   },

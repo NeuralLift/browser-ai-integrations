@@ -182,9 +182,13 @@ impl AiClient {
         // Extract text response (search results are embedded automatically)
         if let Some(candidates) = &response.candidates {
             if let Some(candidate) = candidates.first() {
+                let mut full_text = String::new();
                 for part in &candidate.content.parts {
                     let ResponsePart::Text { text } = part;
-                    return Ok((text.clone(), response.usage_metadata));
+                    full_text.push_str(text);
+                }
+                if !full_text.is_empty() {
+                    return Ok((full_text, response.usage_metadata));
                 }
             }
         }

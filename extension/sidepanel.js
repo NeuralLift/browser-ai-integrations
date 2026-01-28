@@ -1,73 +1,141 @@
 // Side Panel script for Browser AI Assistant
 
-// Simple Markdown parser
+// Simple Markdown parser using marked + DOMPurify + highlight.js
 function parseMarkdown(text) {
   if (!text) return '';
 
-  let html = text;
+  // Fallback if libraries are not loaded
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+    console.warn('Markdown libraries not loaded');
+    return text; 
+  }
 
-  // Escape HTML first
-  html = html
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  // Configure marked if not already configured
+  if (!window.markedConfigured && typeof hljs !== 'undefined') {
+    marked.setOptions({
+      highlight: function(code, lang) {
+        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+        return hljs.highlight(code, { language }).value;
+      },
+      langPrefix: 'hljs language-',
+      breaks: true,
+      gfm: true
+    });
+    window.markedConfigured = true;
+  }
 
-  // Code blocks (```language\ncode```)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
-  });
+  // Parse
+  let html = marked.parse(text);
 
-  // Inline code (`code`)
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Replace Emojis
+  html = replaceEmojis(html);
 
-  // Headers
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-  // Bold
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-
-  // Italic
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/_(.+?)_/g, '<em>$1</em>');
-
-  // Blockquotes
-  html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-
-  // Unordered lists
-  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-
-  // Ordered lists
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-
-  // Horizontal rule
-  html = html.replace(/^---$/gm, '<hr>');
-
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-
-  // Paragraphs - wrap remaining text blocks
-  html = html.replace(/^(?!<[a-z])(.*[^\n])$/gm, '<p>$1</p>');
-
-  // Clean up empty paragraphs and fix nesting
-  html = html.replace(/<p><\/p>/g, '');
-  html = html.replace(/<p>(<h[123]>)/g, '$1');
-  html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<ul>)/g, '$1');
-  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<pre>)/g, '$1');
-  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<blockquote>)/g, '$1');
-  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<hr>)<\/p>/g, '$1');
-
-  // Line breaks for remaining newlines
-  html = html.replace(/\n/g, '');
+  // Sanitize
+  html = DOMPurify.sanitize(html);
 
   return html;
+}
+
+// Basic Emoji Replacement (Common subset)
+function replaceEmojis(text) {
+  const emojiMap = {
+    ':smile:': '😄', ':smiley:': '😃', ':grinning:': '😀', ':blush:': '😊', ':wink:': '😉',
+    ':heart_eyes:': '😍', ':kissing_heart:': '😘', ':stuck_out_tongue:': '😛',
+    ':sunglasses:': '😎', ':nerd_face:': '🤓', ':thinking_face:': '🤔',
+    ':neutral_face:': '😐', ':expressionless:': '😑', ':no_mouth:': '😶',
+    ':smirk:': '😏', ':persevere:': '😣', ':disappointed_relieved:': '😥',
+    ':open_mouth:': '😮', ':zipper_mouth_face:': '🤐', ':hushed:': '😯',
+    ':sleepy:': '😪', ':tired_face:': '😫', ':sleeping:': '😴', ':relieved:': '😌',
+    ':stuck_out_tongue_winking_eye:': '😜', ':stuck_out_tongue_closed_eyes:': '😝',
+    ':drooling_face:': '🤤', ':unamused:': '😒', ':sweat:': '😓', ':pensive:': '😔',
+    ':confused:': '😕', ':upside_down_face:': '🙃', ':money_mouth_face:': '🤑',
+    ':astonished:': '😲', ':frowning:': 'frowning', ':slight_frown:': '🙁',
+    ':confounded:': '😖', ':disappointed:': '😞', ':worried:': '😟',
+    ':triumph:': '😤', ':cry:': '😢', ':sob:': '😭', ':frowning_face:': '😦',
+    ':anguished:': '😧', ':fearful:': '😨', ':weary:': '😩', ':exploding_head:': '🤯',
+    ':grimacing:': '😬', ':anxious_face_with_sweat:': '😰', ':scream:': '😱',
+    ':flushed:': '😳', ':dizzy_face:': '😵', ':rage:': '😡', ':angry:': '😠',
+    ':mask:': '😷', ':thermometer_face:': '🤒', ':head_bandage:': '🤕',
+    ':nauseated_face:': '🤢', ':sneezing_face:': '🤧', ':innocent:': '😇',
+    ':cowboy_hat_face:': '🤠', ':clown_face:': '🤡', ':lying_face:': '🤥',
+    ':shushing_face:': '🤫', ':hand_over_mouth:': '🤭', ':monocle_face:': '🧐',
+    ':thumbsup:': '👍', ':thumbsdown:': '👎', ':ok_hand:': '👌', ':point_up:': '☝️',
+    ':point_down:': '👇', ':point_left:': '👈', ':point_right:': '👉',
+    ':raised_hands:': '🙌', ':pray:': '🙏', ':clap:': '👏', ':muscle:': '💪',
+    ':metal:': '🤘', ':fu:': '🖕', ':top:': '🔝', ':soon:': '🔜',
+    ':on:': '🔛', ':end:': '🔚', ':back:': '🔙', ':fire:': '🔥',
+    ':rocket:': '🚀', ':sparkles:': '✨', ':star:': '⭐', ':heart:': '❤️',
+    ':broken_heart:': '💔', ':warning:': '⚠️', ':check:': '✅', ':x:': '❌',
+    ':question:': '❓', ':exclamation:': '❗', ':bulb:': '💡', ':zzz:': '💤'
+  };
+
+  return text.replace(/:[a-z0-9_]+:/g, (match) => {
+    return emojiMap[match] || match;
+  });
+}
+
+// Enhance code blocks with copy button and language label
+function enhanceCodeBlocks(container) {
+  const pres = container.querySelectorAll('pre');
+  pres.forEach(pre => {
+    // Check if already processed
+    if (pre.parentNode.classList.contains('code-block-wrapper')) return;
+
+    const code = pre.querySelector('code');
+    let lang = 'text';
+    if (code) {
+        // hljs adds class like 'hljs language-javascript'
+        const classes = code.className.split(' ');
+        const langClass = classes.find(c => c.startsWith('language-'));
+        if (langClass) lang = langClass.replace('language-', '');
+    }
+
+    // Create wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block-wrapper';
+    pre.parentNode.insertBefore(wrapper, pre);
+    
+    // Create Header
+    const header = document.createElement('div');
+    header.className = 'code-header';
+    
+    const langSpan = document.createElement('span');
+    langSpan.textContent = lang;
+    
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        Copy
+    `;
+    
+    copyBtn.addEventListener('click', async () => {
+        const text = code ? code.innerText : pre.innerText;
+        try {
+            await navigator.clipboard.writeText(text);
+            copyBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Copied!
+            `;
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+                copyBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    Copy
+                `;
+                copyBtn.classList.remove('copied');
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy', err);
+        }
+    });
+
+    header.appendChild(langSpan);
+    header.appendChild(copyBtn);
+    
+    wrapper.appendChild(header);
+    wrapper.appendChild(pre);
+  });
 }
 
 // Utils
@@ -297,6 +365,22 @@ document.addEventListener('DOMContentLoaded', () => {
       bubbleDiv.textContent = message.text;
     } else {
       bubbleDiv.innerHTML = parseMarkdown(message.text);
+
+      // Render Math (KaTeX)
+      if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(bubbleDiv, {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+        });
+      }
+
+      // Enhance Code Blocks (Copy button, etc)
+      enhanceCodeBlocks(bubbleDiv);
 
       // Token display
       if (message.tokens) {
