@@ -1,574 +1,1253 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Asisten AI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      /* Light theme - Minimalist Monochrome (Vercel/Geist inspired) */
-      --bg-primary: #ffffff;
-      --bg-secondary: #fafafa;
-      --bg-tertiary: #f5f5f5;
-      --text-primary: #000000;
-      --text-secondary: #666666;
-      --text-muted: #888888;
-      --accent: #000000;
-      --accent-hover: #333333;
-      --accent-text: #ffffff;
-      --border: #eaeaea;
-      --user-bubble: #000000;
-      --user-text: #ffffff;
-      --assistant-bubble: #ffffff;
-      --assistant-text: #000000;
-      --code-bg: #f5f5f5;
-      --code-text: #000000;
-      --success: #0070f3;
-      --error: #e00;
-      --ring: rgba(0,0,0,0.1);
-    }
-    
-    [data-theme="dark"] {
-      /* Dark theme - True Black Monochrome */
-      --bg-primary: #000000;
-      --bg-secondary: #0a0a0a;
-      --bg-tertiary: #1a1a1a;
-      --text-primary: #ededed;
-      --text-secondary: #a1a1a1;
-      --text-muted: #666666;
-      --accent: #ffffff;
-      --accent-hover: #cccccc;
-      --accent-text: #000000;
-      --border: #333333;
-      --user-bubble: #ffffff;
-      --user-text: #000000;
-      --assistant-bubble: #000000;
-      --assistant-text: #ededed;
-      --code-bg: #111111;
-      --code-text: #ededed;
-      --ring: rgba(255,255,255,0.15);
-    }
-    
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    html, body {
-      height: 100%;
-      font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-      font-size: 14px;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      transition: background 0.3s, color 0.3s;
-    }
-    
-    .container {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-    
-    /* Header */
-    .header {
-      background: var(--bg-secondary);
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    
-    .logo {
-      width: 32px;
-      height: 32px;
-      background: var(--accent);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .logo svg {
-      width: 20px;
-      height: 20px;
-      fill: var(--accent-text);
-    }
-    
-    .header h1 {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--error);
-    }
-    
-    .status-dot.connected {
-      background: var(--success);
-    }
-    
-    .icon-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: transparent;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-secondary);
-      transition: background 0.2s, color 0.2s;
-    }
-    
-    .icon-btn:hover {
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-    }
-    
-    .icon-btn svg {
-      width: 18px;
-      height: 18px;
-    }
-    
-    /* Context Bar */
-    .context-bar {
-      background: var(--bg-secondary);
-      padding: 10px 16px;
-      font-size: 13px;
-      color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    
-    .context-bar svg {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      color: var(--text-muted);
-    }
-    
-    .page-info {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    
-    .page-title {
-      color: var(--text-primary);
-      font-weight: 500;
-    }
-    
-    .refresh-btn {
-      color: var(--text-muted);
-    }
-    
-    .refresh-btn.spinning svg {
-      animation: spin 1s linear infinite;
-    }
-    
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    
-    /* Chat Container */
-    .chat-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    
-    .message {
-      max-width: 90%;
-      animation: fadeIn 0.3s ease;
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .message.user {
-      align-self: flex-end;
-    }
-    
-    .message.user .bubble {
-      background: var(--user-bubble);
-      color: var(--user-text);
-      border-radius: 16px 16px 4px 16px;
-      padding: 14px 18px;
-      font-size: 15px;
-    }
-    
-    .message.assistant {
-      align-self: flex-start;
-    }
-    
-    .message.assistant .bubble {
-      background: var(--assistant-bubble);
-      color: var(--assistant-text);
-      border-radius: 16px 16px 16px 4px;
-      padding: 14px 18px;
-      border: 1px solid var(--border);
-      font-size: 15px;
-    }
-    
-    /* Markdown Styles */
-    .bubble h1, .bubble h2, .bubble h3 {
-      margin: 12px 0 8px 0;
-      font-weight: 600;
-    }
-    
-    .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child {
-      margin-top: 0;
-    }
-    
-    .bubble h1 { font-size: 1.3em; }
-    .bubble h2 { font-size: 1.15em; }
-    .bubble h3 { font-size: 1.05em; }
-    
-    .bubble p {
-      margin: 8px 0;
-      line-height: 1.7;
-    }
-    
-    .bubble p:first-child { margin-top: 0; }
-    .bubble p:last-child { margin-bottom: 0; }
-    
-    .bubble ul, .bubble ol {
-      margin: 8px 0;
-      padding-left: 24px;
-    }
-    
-    .bubble li {
-      margin: 4px 0;
-      line-height: 1.7;
-    }
-    
-    .bubble strong {
-      font-weight: 600;
-    }
-    
-    .bubble em {
-      font-style: italic;
-    }
-    
-    .bubble code {
-      font-family: inherit;
-      font-size: 0.95em;
-      background: var(--code-bg);
-      color: var(--code-text);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    
-    .bubble pre {
-      background: var(--code-bg);
-      color: var(--code-text);
-      padding: 14px 18px;
-      border-radius: 8px;
-      overflow-x: auto;
-      margin: 12px 0;
-      font-size: 14px;
-      line-height: 1.6;
-    }
-    
-    .bubble pre code {
-      background: none;
-      padding: 0;
-      font-size: inherit;
-    }
-    
-    .bubble blockquote {
-      border-left: 3px solid var(--accent);
-      padding-left: 12px;
-      margin: 12px 0;
-      color: var(--text-secondary);
-    }
-    
-    .bubble a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-    
-    .bubble a:hover {
-      text-decoration: underline;
-    }
-    
-    .bubble hr {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 16px 0;
-    }
-    
-    .message.typing .bubble {
-      color: var(--text-muted);
-    }
-    
-    .message.typing .bubble::after {
-      content: "...";
-      animation: dots 1.5s infinite;
-    }
-    
-    @keyframes dots {
-      0%, 20% { content: "."; }
-      40% { content: ".."; }
-      60%, 100% { content: "..."; }
-    }
-    
-    /* Quick Actions */
-    .quick-actions {
-      padding: 12px 16px;
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-    }
-    
-    .quick-btn {
-      padding: 10px 16px;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      color: var(--text-secondary);
-      font-family: inherit;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    
-    .quick-btn svg {
-      width: 14px;
-      height: 14px;
-    }
-    
-    .quick-btn:hover {
-      background: var(--accent);
-      color: var(--accent-text);
-      border-color: var(--accent);
-    }
-    
-    /* Input Container */
-    .input-container {
-      padding: 16px;
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-      display: flex;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    
-    #message-input {
-      flex: 1;
-      padding: 14px 18px;
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      font-family: inherit;
-      font-size: 15px;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    
-    #message-input:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--ring);
-    }
-    
-    #message-input::placeholder {
-      color: var(--text-muted);
-    }
-    
-    #send-btn {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: var(--accent);
-      color: var(--accent-text);
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s, opacity 0.2s;
-    }
-    
-    #send-btn svg {
-      width: 20px;
-      height: 20px;
-    }
-    
-    #send-btn:hover {
-      background: var(--accent-hover);
-    }
-    
-    #send-btn:active {
-      opacity: 0.8;
-    }
-    
-    #send-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-  </style>
-</head>
-<body data-theme="dark">
-  <div class="container">
-    <div class="header">
-      <div class="header-left">
-        <div class="logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <!-- Bot head -->
-            <rect x="4" y="6" width="16" height="12" rx="2" />
-            <!-- Eyes -->
-            <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
-            <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
-            <!-- Mouth -->
-            <path d="M9 15h6" stroke-linecap="round" />
-            <!-- Antenna -->
-            <line x1="12" y1="6" x2="12" y2="3" />
-            <circle cx="12" cy="2" r="1" fill="currentColor" stroke="none" />
-            <!-- Ears -->
-            <line x1="4" y1="10" x2="2" y2="10" />
-            <line x1="4" y1="14" x2="2" y2="14" />
-            <line x1="20" y1="10" x2="22" y2="10" />
-            <line x1="20" y1="14" x2="22" y2="14" />
-          </svg>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Asisten AI</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            :root {
+                /* Light theme - Minimalist Monochrome (Vercel/Geist inspired) */
+                --bg-primary: #ffffff;
+                --bg-secondary: #fafafa;
+                --bg-tertiary: #f5f5f5;
+                --text-primary: #000000;
+                --text-secondary: #666666;
+                --text-muted: #888888;
+                --accent: #000000;
+                --accent-hover: #333333;
+                --accent-text: #ffffff;
+                --border: #eaeaea;
+                --user-bubble: #000000;
+                --user-text: #ffffff;
+                --assistant-bubble: #ffffff;
+                --assistant-text: #000000;
+                --code-bg: #f5f5f5;
+                --code-text: #000000;
+                --success: #0070f3;
+                --error: #e00;
+                --ring: rgba(0, 0, 0, 0.1);
+            }
+
+            [data-theme="dark"] {
+                /* Dark theme - True Black Monochrome */
+                --bg-primary: #000000;
+                --bg-secondary: #0a0a0a;
+                --bg-tertiary: #1a1a1a;
+                --text-primary: #ededed;
+                --text-secondary: #a1a1a1;
+                --text-muted: #666666;
+                --accent: #ffffff;
+                --accent-hover: #cccccc;
+                --accent-text: #000000;
+                --border: #333333;
+                --user-bubble: #ffffff;
+                --user-text: #000000;
+                --assistant-bubble: #000000;
+                --assistant-text: #ededed;
+                --code-bg: #111111;
+                --code-text: #ededed;
+                --ring: rgba(255, 255, 255, 0.15);
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            html,
+            body {
+                height: 100%;
+                font-family:
+                    "JetBrains Mono", "Fira Code", "Consolas", "Monaco",
+                    monospace;
+                font-size: 14px;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                transition:
+                    background 0.3s,
+                    color 0.3s;
+            }
+
+            .container {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+            }
+
+            /* Header */
+            .header {
+                background: var(--bg-secondary);
+                padding: 12px 16px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-bottom: 1px solid var(--border);
+                flex-shrink: 0;
+            }
+
+            .header-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .logo {
+                width: 32px;
+                height: 32px;
+                background: var(--accent);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .logo svg {
+                width: 20px;
+                height: 20px;
+                fill: var(--accent-text);
+            }
+
+            .header h1 {
+                font-size: 15px;
+                font-weight: 600;
+                color: var(--text-primary);
+            }
+
+            .header-right {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .status {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                color: var(--text-secondary);
+            }
+
+            .status-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: var(--error);
+            }
+
+            .status-dot.connected {
+                background: var(--success);
+            }
+
+            .icon-btn {
+                width: 32px;
+                height: 32px;
+                border: none;
+                background: transparent;
+                border-radius: 6px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--text-secondary);
+                transition:
+                    background 0.2s,
+                    color 0.2s;
+            }
+
+            .icon-btn:hover {
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+            }
+
+            .icon-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            /* Context Bar */
+            .context-bar {
+                background: var(--bg-secondary);
+                padding: 10px 16px;
+                font-size: 13px;
+                color: var(--text-secondary);
+                border-bottom: 1px solid var(--border);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex-shrink: 0;
+            }
+
+            .context-bar svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                color: var(--text-muted);
+            }
+
+            .page-info {
+                flex: 1;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .page-title {
+                color: var(--text-primary);
+                font-weight: 500;
+            }
+
+            .refresh-btn {
+                color: var(--text-muted);
+            }
+
+            .context-bar svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                color: var(--text-muted);
+            }
+
+            .page-info {
+                flex: 1;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .page-title {
+                color: var(--text-primary);
+                font-weight: 500;
+            }
+
+            .refresh-btn {
+                color: var(--text-muted);
+            }
+
+            .refresh-btn.spinning svg {
+                animation: spin 1s linear infinite;
+            }
+
+            @keyframes spin {
+                from {
+                    transform: rotate(0deg);
+                }
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            /* Chat Container */
+            .chat-container {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .message {
+                max-width: 90%;
+                animation: fadeIn 0.3s ease;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(8px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .message.user {
+                align-self: flex-end;
+            }
+
+            .message.user .bubble {
+                background: var(--user-bubble);
+                color: var(--user-text);
+                border-radius: 16px 16px 4px 16px;
+                padding: 14px 18px;
+                font-size: 15px;
+            }
+
+            .message.assistant {
+                align-self: flex-start;
+            }
+
+            .message.assistant .bubble {
+                background: var(--assistant-bubble);
+                color: var(--assistant-text);
+                border-radius: 16px 16px 16px 4px;
+                padding: 14px 18px;
+                border: 1px solid var(--border);
+                font-size: 15px;
+            }
+
+            /* Markdown Styles */
+            .bubble h1,
+            .bubble h2,
+            .bubble h3 {
+                margin: 12px 0 8px 0;
+                font-weight: 600;
+            }
+
+            .bubble h1:first-child,
+            .bubble h2:first-child,
+            .bubble h3:first-child {
+                margin-top: 0;
+            }
+
+            .bubble h1 {
+                font-size: 1.3em;
+            }
+            .bubble h2 {
+                font-size: 1.15em;
+            }
+            .bubble h3 {
+                font-size: 1.05em;
+            }
+
+            .bubble p {
+                margin: 8px 0;
+                line-height: 1.7;
+            }
+
+            .bubble p:first-child {
+                margin-top: 0;
+            }
+            .bubble p:last-child {
+                margin-bottom: 0;
+            }
+
+            .bubble ul,
+            .bubble ol {
+                margin: 8px 0;
+                padding-left: 24px;
+            }
+
+            .bubble li {
+                margin: 4px 0;
+                line-height: 1.7;
+            }
+
+            .bubble strong {
+                font-weight: 600;
+            }
+
+            .bubble em {
+                font-style: italic;
+            }
+
+            .bubble code {
+                font-family: inherit;
+                font-size: 0.95em;
+                background: var(--code-bg);
+                color: var(--code-text);
+                padding: 2px 6px;
+                border-radius: 4px;
+            }
+
+            .bubble pre {
+                background: var(--code-bg);
+                color: var(--code-text);
+                padding: 14px 18px;
+                border-radius: 8px;
+                overflow-x: auto;
+                margin: 12px 0;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+
+            .bubble pre code {
+                background: none;
+                padding: 0;
+                font-size: inherit;
+            }
+
+            .bubble blockquote {
+                border-left: 3px solid var(--accent);
+                padding-left: 12px;
+                margin: 12px 0;
+                color: var(--text-secondary);
+            }
+
+            .bubble a {
+                color: var(--accent);
+                text-decoration: none;
+            }
+
+            .bubble a:hover {
+                text-decoration: underline;
+            }
+
+            .bubble hr {
+                border: none;
+                border-top: 1px solid var(--border);
+                margin: 16px 0;
+            }
+
+            .message.typing .bubble {
+                color: var(--text-muted);
+            }
+
+            .message.typing .bubble::after {
+                content: "...";
+                animation: dots 1.5s infinite;
+            }
+
+            @keyframes dots {
+                0%,
+                20% {
+                    content: ".";
+                }
+                40% {
+                    content: "..";
+                }
+                60%,
+                100% {
+                    content: "...";
+                }
+            }
+
+            /* Quick Actions */
+            .quick-actions {
+                padding: 12px 16px;
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                background: var(--bg-secondary);
+                border-top: 1px solid var(--border);
+            }
+
+            .quick-btn {
+                padding: 10px 16px;
+                background: var(--bg-primary);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                color: var(--text-secondary);
+                font-family: inherit;
+                font-size: 13px;
+                cursor: pointer;
+                transition: all 0.2s;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .quick-btn svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            .quick-btn:hover {
+                background: var(--accent);
+                color: var(--accent-text);
+                border-color: var(--accent);
+            }
+
+            /* Input Container */
+            .input-container {
+                padding: 16px;
+                background: var(--bg-secondary);
+                border-top: 1px solid var(--border);
+                display: flex;
+                gap: 10px;
+                flex-shrink: 0;
+            }
+
+            #message-input {
+                flex: 1;
+                padding: 12px 18px;
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                font-family: inherit;
+                font-size: 14px;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                outline: none;
+                transition:
+                    border-color 0.2s,
+                    box-shadow 0.2s;
+                min-height: 44px;
+                max-height: 120px;
+                overflow-y: auto;
+                resize: none;
+                line-height: 1.4;
+            }
+
+            #message-input:focus {
+                border-color: var(--accent);
+                box-shadow: 0 0 0 3px var(--ring);
+            }
+
+            #message-input::placeholder {
+                color: var(--text-muted);
+            }
+
+            #send-btn {
+                width: 44px;
+                height: 44px;
+                border-radius: 50%;
+                background: var(--accent);
+                color: var(--accent-text);
+                border: none;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition:
+                    background 0.2s,
+                    opacity 0.2s;
+            }
+
+            #send-btn svg {
+                width: 20px;
+                height: 20px;
+            }
+
+            #send-btn:hover {
+                background: var(--accent-hover);
+            }
+
+            #send-btn:active {
+                opacity: 0.8;
+            }
+
+            #send-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            /* Session Controls */
+            .session-controls {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .session-select-container {
+                position: relative;
+            }
+
+            #session-select-btn {
+                max-width: 150px;
+                justify-content: flex-start;
+                padding-right: 24px;
+                font-size: 13px;
+            }
+
+            /* Modal Styles */
+            .modal {
+                display: none;
+                position: fixed;
+                z-index: 100;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                align-items: center;
+                justify-content: center;
+            }
+
+            .modal.show {
+                display: flex;
+            }
+
+            .modal-content {
+                background-color: var(--bg-secondary);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 20px;
+                width: 90%;
+                max-width: 400px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
+
+            .modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 16px;
+            }
+
+            .modal-header h2 {
+                font-size: 16px;
+                font-weight: 600;
+                margin: 0;
+            }
+
+            .close-modal {
+                cursor: pointer;
+                font-size: 20px;
+                color: var(--text-secondary);
+            }
+
+            .form-group {
+                margin-bottom: 16px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-size: 13px;
+                font-weight: 500;
+                color: var(--text-secondary);
+            }
+
+            .form-group textarea {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                font-family: inherit;
+                font-size: 13px;
+                resize: vertical;
+            }
+
+            .form-group.row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .form-group.row label {
+                margin-bottom: 0;
+            }
+
+            .modal-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                margin-top: 24px;
+            }
+
+            .primary-btn {
+                background: var(--accent);
+                color: var(--accent-text);
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            .secondary-btn {
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+                border: 1px solid var(--border);
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            .secondary-btn:hover {
+                background: var(--bg-secondary);
+            }
+
+            .danger-btn {
+                background: var(--error);
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            .danger-btn:hover {
+                opacity: 0.9;
+            }
+
+            /* Switch Toggle */
+            .switch {
+                position: relative;
+                display: inline-block;
+                width: 36px;
+                height: 20px;
+            }
+
+            .switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+
+            .slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: var(--bg-tertiary);
+                transition: 0.4s;
+                border: 1px solid var(--border);
+            }
+
+            .slider:before {
+                position: absolute;
+                content: "";
+                height: 14px;
+                width: 14px;
+                left: 2px;
+                bottom: 2px;
+                background-color: var(--text-secondary);
+                transition: 0.4s;
+            }
+
+            input:checked + .slider {
+                background-color: var(--success);
+                border-color: var(--success);
+            }
+
+            input:checked + .slider:before {
+                transform: translateX(16px);
+                background-color: white;
+            }
+
+            .slider.round {
+                border-radius: 20px;
+            }
+
+            .slider.round:before {
+                border-radius: 50%;
+            }
+
+            .screenshot-toggle-container {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .toggle-icon {
+                font-size: 14px;
+            }
+
+            /* Tools Menu Dropdown */
+            .tools-menu {
+                position: absolute;
+                bottom: calc(100% + 8px);
+                left: 0;
+                background: var(--bg-secondary);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+                min-width: 200px;
+                z-index: 50;
+                opacity: 0;
+                visibility: hidden;
+                transform: translateY(8px);
+                transition:
+                    opacity 0.2s,
+                    transform 0.2s,
+                    visibility 0.2s;
+            }
+
+            .tools-menu.show {
+                opacity: 1;
+                visibility: visible;
+                transform: translateY(0);
+            }
+
+            .menu-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 14px;
+                cursor: pointer;
+                font-size: 13px;
+                color: var(--text-primary);
+                transition: background 0.15s;
+            }
+
+            .menu-item:first-child {
+                border-radius: 10px 10px 0 0;
+            }
+
+            .menu-item:last-child {
+                border-radius: 0 0 10px 10px;
+            }
+
+            .menu-item:hover {
+                background: var(--bg-tertiary);
+            }
+
+            .menu-item svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                color: var(--text-secondary);
+            }
+
+            .menu-item.toggle-item {
+                justify-content: space-between;
+                cursor: default;
+            }
+
+            .menu-item.toggle-item:hover {
+                background: var(--bg-tertiary);
+            }
+
+            .menu-item-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .menu-item-left svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                color: var(--text-secondary);
+            }
+
+            /* Tools Button Container */
+            .tools-btn-container {
+                position: relative;
+            }
+        </style>
+    </head>
+    <body data-theme="dark">
+        <div class="container">
+            <div class="header">
+                <div class="header-left">
+                    <div class="session-controls">
+                        <button
+                            class="icon-btn"
+                            id="new-chat-btn"
+                            title="Chat Baru"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M12 5v14M5 12h14" />
+                            </svg>
+                        </button>
+                        <div class="session-select-container">
+                            <button
+                                class="icon-btn"
+                                id="session-select-btn"
+                                title="Daftar Sesi"
+                                style="
+                                    width: auto;
+                                    min-width: 100px;
+                                    justify-content: space-between;
+                                "
+                            >
+                                <span
+                                    id="current-session-name"
+                                    style="
+                                        overflow: hidden;
+                                        text-overflow: ellipsis;
+                                        white-space: nowrap;
+                                        max-width: 80px;
+                                    "
+                                    >Chat Baru</span
+                                >
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    style="
+                                        width: 12px;
+                                        height: 12px;
+                                        flex-shrink: 0;
+                                    "
+                                >
+                                    <path d="M6 9l6 6 6-6" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="status">
+                        <span class="status-dot" id="status-dot"></span>
+                    </div>
+                    <button
+                        class="icon-btn"
+                        id="settings-btn"
+                        title="Pengaturan"
+                    >
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path
+                                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                            ></path>
+                        </svg>
+                    </button>
+                    <button
+                        class="icon-btn"
+                        id="theme-toggle"
+                        title="Ganti tema"
+                    >
+                        <svg
+                            id="theme-icon-light"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            style="display: none"
+                        >
+                            <circle cx="12" cy="12" r="5" />
+                            <path
+                                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                            />
+                        </svg>
+                        <svg
+                            id="theme-icon-dark"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path
+                                d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+                            />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="context-bar">
+                <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                >
+                    <path
+                        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                <div class="page-info">
+                    <span class="page-title" id="page-title"
+                        >Tidak ada halaman terdeteksi</span
+                    >
+                </div>
+                <button
+                    class="icon-btn refresh-btn"
+                    id="refresh-context"
+                    title="Perbarui konteks"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="chat-container" id="chat-container"></div>
+
+            <div class="quick-actions">
+                <button class="quick-btn" data-prompt="Rangkum halaman ini">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <line x1="21" y1="10" x2="3" y2="10" />
+                        <line x1="21" y1="6" x2="3" y2="6" />
+                        <line x1="21" y1="14" x2="3" y2="14" />
+                        <line x1="21" y1="18" x2="3" y2="18" />
+                    </svg>
+                    Rangkum
+                </button>
+                <button
+                    class="quick-btn"
+                    data-prompt="Halaman ini tentang apa?"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    Ini apa?
+                </button>
+                <button
+                    class="quick-btn"
+                    data-prompt="Jelaskan poin-poin utama dalam bentuk bullet points"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <polygon
+                            points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                        />
+                    </svg>
+                    Poin Utama
+                </button>
+                <button
+                    class="quick-btn"
+                    data-prompt="Terjemahkan ke Bahasa Inggris"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <path
+                            d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                        />
+                    </svg>
+                    Terjemahkan
+                </button>
+            </div>
+
+            <div class="input-container" style="position: relative">
+                <input
+                    type="file"
+                    id="image-upload"
+                    accept="image/*"
+                    style="display: none"
+                />
+
+                <div
+                    id="image-preview"
+                    style="
+                        display: none;
+                        position: absolute;
+                        bottom: 80px;
+                        left: 16px;
+                        background: var(--bg-secondary);
+                        border: 1px solid var(--border);
+                        border-radius: 8px;
+                        padding: 4px;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                        z-index: 40;
+                    "
+                >
+                    <img
+                        id="preview-img"
+                        style="
+                            max-height: 100px;
+                            max-width: 200px;
+                            display: block;
+                            border-radius: 4px;
+                        "
+                    />
+                    <button
+                        id="clear-image"
+                        style="
+                            position: absolute;
+                            top: -8px;
+                            right: -8px;
+                            background: var(--error);
+                            color: white;
+                            border-radius: 50%;
+                            width: 20px;
+                            height: 20px;
+                            border: none;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 14px;
+                        "
+                    >
+                        &times;
+                    </button>
+                </div>
+
+                <div class="tools-btn-container">
+                    <!-- Tools Menu Popover -->
+                    <div id="tools-menu" class="tools-menu">
+                        <div class="menu-item" id="menu-upload-image">
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path
+                                    d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                                />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            Upload Gambar
+                        </div>
+                        <div class="menu-item toggle-item">
+                            <div class="menu-item-left">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                >
+                                    <path
+                                        d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+                                    />
+                                    <circle cx="12" cy="13" r="4" />
+                                </svg>
+                                Screenshot
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="screenshot-toggle" />
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="icon-btn" id="tools-btn" title="Alat">
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path
+                                d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                            />
+                        </svg>
+                    </button>
+                </div>
+                <textarea
+                    id="message-input"
+                    rows="1"
+                    placeholder="Tanyakan tentang halaman ini..."
+                ></textarea>
+                <button id="send-btn">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                </button>
+            </div>
         </div>
-        <h1>Asisten AI</h1>
-      </div>
-      <div class="header-right">
-        <div class="status">
-          <span class="status-dot" id="status-dot"></span>
-          <span id="status-text">Menghubungkan</span>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Pengaturan</h2>
+                    <span class="close-modal" id="close-settings">&times;</span>
+                </div>
+                <div class="form-group">
+                    <label>Instruksi Global (System Prompt)</label>
+                    <textarea
+                        id="global-instruction"
+                        rows="4"
+                        placeholder="Misal: Jawab selalu dengan gaya santai..."
+                    ></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Instruksi Sesi Ini (Override)</label>
+                    <textarea
+                        id="session-instruction"
+                        rows="2"
+                        placeholder="Khusus sesi ini..."
+                    ></textarea>
+                </div>
+                <div class="form-group row">
+                    <label>Screenshot Default ON</label>
+                    <label class="switch">
+                        <input
+                            type="checkbox"
+                            id="setting-screenshot-default"
+                        />
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button id="save-settings-btn" class="primary-btn">
+                        Simpan
+                    </button>
+                </div>
+            </div>
         </div>
-        <button class="icon-btn" id="theme-toggle" title="Ganti tema">
-          <svg id="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
-            <circle cx="12" cy="12" r="5"/>
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-          </svg>
-          <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-    
-    <div class="context-bar">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="16" y1="13" x2="8" y2="13"/>
-        <line x1="16" y1="17" x2="8" y2="17"/>
-      </svg>
-      <div class="page-info">
-        <span class="page-title" id="page-title">Tidak ada halaman terdeteksi</span>
-      </div>
-      <button class="icon-btn refresh-btn" id="refresh-context" title="Perbarui konteks">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 4 23 10 17 10"/>
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-        </svg>
-      </button>
-    </div>
-    
-    <div class="chat-container" id="chat-container">
-      <div class="message assistant">
-        <div class="bubble">
-          <p>Halo! Saya bisa melihat apa yang kamu jelajahi dan membantu menjawab pertanyaan tentang konten halaman. Coba tanyakan sesuatu!</p>
+
+        <!-- Session Modal -->
+        <div id="session-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Daftar Sesi</h2>
+                    <span class="close-modal" id="close-sessions">&times;</span>
+                </div>
+                <div
+                    id="session-list"
+                    style="
+                        max-height: 300px;
+                        overflow-y: auto;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                    "
+                >
+                    <!-- Sessions will be injected here -->
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-    
-    <div class="quick-actions">
-      <button class="quick-btn" data-prompt="Rangkum halaman ini">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="21" y1="10" x2="3" y2="10"/>
-          <line x1="21" y1="6" x2="3" y2="6"/>
-          <line x1="21" y1="14" x2="3" y2="14"/>
-          <line x1="21" y1="18" x2="3" y2="18"/>
-        </svg>
-        Rangkum
-      </button>
-      <button class="quick-btn" data-prompt="Halaman ini tentang apa?">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-        Ini apa?
-      </button>
-      <button class="quick-btn" data-prompt="Jelaskan poin-poin utama dalam bentuk bullet points">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-        </svg>
-        Poin Utama
-      </button>
-      <button class="quick-btn" data-prompt="Terjemahkan ke Bahasa Inggris">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="2" y1="12" x2="22" y2="12"/>
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-        </svg>
-        Terjemahkan
-      </button>
-    </div>
-    
-    <div class="input-container">
-      <input type="text" id="message-input" placeholder="Tanyakan tentang halaman ini..." />
-      <button id="send-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13"/>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
-      </button>
-    </div>
-  </div>
-  
-  <script src="sidepanel.js"></script>
-</body>
+
+        <!-- Delete Confirmation Modal -->
+        <div id="delete-modal" class="modal">
+            <div class="modal-content" style="max-width: 320px;">
+                <div class="modal-header">
+                    <h2>Hapus Sesi?</h2>
+                    <span class="close-modal" id="close-delete">&times;</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 20px;">
+                    Sesi ini akan dihapus permanen dan tidak dapat dikembalikan.
+                </p>
+                <div class="modal-actions" style="gap: 10px;">
+                    <button id="cancel-delete-btn" class="secondary-btn">Batal</button>
+                    <button id="confirm-delete-btn" class="danger-btn">Hapus</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="sidepanel.js"></script>
+    </body>
 </html>

@@ -46,7 +46,19 @@ struct GoogleSearchTool {}
 #[derive(Debug, Deserialize)]
 struct GeminiResponse {
     candidates: Option<Vec<Candidate>>,
+    #[serde(rename = "usageMetadata")]
+    usage_metadata: Option<UsageMetadata>,
     error: Option<GeminiError>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UsageMetadata {
+    #[serde(rename = "promptTokenCount")]
+    pub prompt_token_count: i32,
+    #[serde(rename = "candidatesTokenCount")]
+    pub candidates_token_count: Option<i32>,
+    #[serde(rename = "totalTokenCount")]
+    pub total_token_count: i32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,12 +105,37 @@ impl AiClient {
         &self,
         context: Option<&SanitizedContext>,
         user_message: &str,
-    ) -> Result<String, String> {
-        let system_prompt = self.build_system_prompt(context);
+        custom_instruction: Option<&str>,
+        user_image: Option<&str>,
+    ) -> Result<(String, Option<UsageMetadata>), String> {
+        let system_prompt = self.build_system_prompt(context, custom_instruction);
         let full_prompt = format!("{}\n\nUser: {}", system_prompt, user_message);
 
         // Build parts - text first, then image if available
         let mut parts: Vec<Part> = vec![Part::Text { text: full_prompt }];
+
+        // Add user uploaded image if available
+        if let Some(img_data) = user_image {
+            // Assume JPEG for now or detect from prefix
+            let (mime, data) = if img_data.starts_with("data:image/png;base64,") {
+                ("image/png", &img_data[22..])
+            } else if img_data.starts_with("data:image/jpeg;base64,") {
+                ("image/jpeg", &img_data[23..])
+            } else if img_data.starts_with("data:image/webp;base64,") {
+                ("image/webp", &img_data[23..])
+            } else {
+                // Default fallback or raw base64
+                ("image/jpeg", img_data)
+            };
+            
+            parts.push(Part::InlineData {
+                inline_data: InlineData {
+                    mime_type: mime.to_string(),
+                    data: data.to_string(),
+                },
+            });
+            tracing::info!("Including user uploaded image in AI request");
+        }
 
         // Add screenshot as image if available
         if let Some(ctx) = context {
@@ -147,7 +184,7 @@ impl AiClient {
             if let Some(candidate) = candidates.first() {
                 for part in &candidate.content.parts {
                     let ResponsePart::Text { text } = part;
-                    return Ok(text.clone());
+                    return Ok((text.clone(), response.usage_metadata));
                 }
             }
         }
@@ -191,10 +228,17 @@ impl AiClient {
         })
     }
 
-    fn build_system_prompt(&self, context: Option<&SanitizedContext>) -> String {
+    fn build_system_prompt(&self, context: Option<&SanitizedContext>, custom_instruction: Option<&str>) -> String {
         let mut prompt = String::from(
-            "Kamu adalah asisten browser yang membantu. Kamu bisa melihat apa yang sedang dijelajahi pengguna dan membantu mereka memahami kontennya.\n\n\
-            PENTING: Kamu memiliki akses ke:\n\
+            "Kamu adalah asisten browser yang membantu. Kamu bisa melihat apa yang sedang dijelajahi pengguna dan membantu mereka memahami kontennya.\n\n",
+        );
+
+        if let Some(instruction) = custom_instruction {
+            prompt.push_str(&format!("INSTRUKSI TAMBAHAN: {}\n\n", instruction));
+        }
+
+        prompt.push_str(
+            "PENTING: Kamu memiliki akses ke:\n\
             1. Konten teks halaman browser\n\
             2. Screenshot dari tampilan browser saat ini\n\
             3. Google Search - gunakan ini untuk mencari informasi terkini di internet\n\n\

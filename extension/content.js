@@ -167,6 +167,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('[Content] Error extracting content:', e);
       sendResponse({ text: '', title: document.title, url: window.location.href });
     }
+  } else if (message.action === 'getMetrics') {
+    sendResponse({
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio
+    });
+  } else if (message.action === 'getScrollPosition') {
+    sendResponse({
+      x: window.scrollX,
+      y: window.scrollY
+    });
+  } else if (message.action === 'scrollTo') {
+    window.scrollTo(message.x, message.y);
+    sendResponse({ success: true });
   }
   return true;
 });

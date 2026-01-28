@@ -29,11 +29,19 @@ struct HealthResponse {
 #[derive(Deserialize)]
 struct ChatRequest {
     message: String,
+    custom_instruction: Option<String>,
+    image: Option<String>,
 }
 
 #[derive(Serialize)]
 struct ChatResponse {
     response: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_tokens: Option<i32>,
 }
 
 async fn hello_world() -> &'static str {
@@ -81,20 +89,20 @@ async fn chat_handler(
     drop(context_guard);
     
     // Try to get AI response
-    let response = match ai::AiClient::new() {
+    let (response_text, usage_metadata) = match ai::AiClient::new() {
         Ok(client) => {
-            match client.ask(sanitized.as_ref(), &request.message).await {
-                Ok(reply) => reply,
+            match client.ask(sanitized.as_ref(), &request.message, request.custom_instruction.as_deref(), request.image.as_deref()).await {
+                Ok((reply, usage)) => (reply, usage),
                 Err(e) => {
                     tracing::error!("AI error: {}", e);
-                    format!("AI service error: {}. Make sure GOOGLE_API_KEY is set.", e)
+                    (format!("AI service error: {}. Make sure GOOGLE_API_KEY is set.", e), None)
                 }
             }
         }
         Err(e) => {
             tracing::warn!("AI client not configured: {}", e);
             // Fallback response when API key is not configured
-            if let Some(ctx) = sanitized {
+            let reply = if let Some(ctx) = sanitized {
                 format!(
                     "I can see you're on: {}\n\nPage title: {}\n\n(AI integration requires GOOGLE_API_KEY environment variable)",
                     ctx.url.unwrap_or_default(),
@@ -102,11 +110,27 @@ async fn chat_handler(
                 )
             } else {
                 "No browser context received yet. Open a webpage and the context will be captured automatically.\n\n(AI integration requires GOOGLE_API_KEY environment variable)".to_string()
-            }
+            };
+            (reply, None)
         }
     };
     
-    Json(ChatResponse { response })
+    let (prompt_tokens, response_tokens, total_tokens) = if let Some(usage) = usage_metadata {
+        (
+            Some(usage.prompt_token_count),
+            usage.candidates_token_count,
+            Some(usage.total_token_count),
+        )
+    } else {
+        (None, None, None)
+    };
+    
+    Json(ChatResponse {
+        response: response_text,
+        prompt_tokens,
+        response_tokens,
+        total_tokens,
+    })
 }
 
 #[tokio::main]

@@ -67,7 +67,11 @@ function stopContextUpdates() {
 }
 
 // Capture current tab context and send to backend
-async function captureAndSendContext(forceUpdate = false) {
+async function captureAndSendContext(options = {}) {
+  // Handle legacy boolean argument (backwards compatibility)
+  const forceUpdate = typeof options === 'boolean' ? options : (options.forceUpdate || false);
+  const skipScreenshot = typeof options === 'object' ? (options.skipScreenshot || false) : false;
+
   if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
     return;
   }
@@ -107,12 +111,20 @@ async function captureAndSendContext(forceUpdate = false) {
       }
     }
     
-    // Capture viewport screenshot
+    // Capture screenshot
     let screenshot = null;
-    try {
-      screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
-    } catch (e) {
-      console.log('[Background] Could not capture screenshot:', e.message);
+    if (!skipScreenshot) {
+      try {
+        // Try full page first
+        screenshot = await captureFullPage(tab.id);
+      } catch (e) {
+        console.log('[Background] Full page capture failed, falling back to viewport:', e);
+        try {
+          screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
+        } catch (e2) {
+          console.log('[Background] Viewport capture failed:', e2);
+        }
+      }
     }
     
     // Build context object
@@ -130,7 +142,7 @@ async function captureAndSendContext(forceUpdate = false) {
     
     // Send to backend
     ws.send(JSON.stringify(sanitizedContext));
-    console.log('[Background] Context sent:', sanitizedContext.url, 'Content length:', sanitizedContext.content?.length || 0);
+    console.log('[Background] Context sent:', sanitizedContext.url, 'Content length:', sanitizedContext.content?.length || 0, 'Screenshot:', !!screenshot);
   } catch (error) {
     console.error('[Background] Error capturing context:', error);
   }
@@ -160,16 +172,16 @@ function sanitizeContext(context) {
 // Listen for tab activation (switching tabs)
 chrome.tabs.onActivated.addListener((activeInfo) => {
   console.log('[Background] Tab activated:', activeInfo.tabId);
-  // Force immediate context update when switching tabs
-  setTimeout(() => captureAndSendContext(true), 100);
+  // Update context WITHOUT screenshot when switching tabs
+  setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 100);
 });
 
 // Listen for tab URL changes (navigation within tab)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.active) {
     console.log('[Background] Tab updated:', tab.url);
-    // Force immediate context update when page loads
-    setTimeout(() => captureAndSendContext(true), 500);
+    // Update context WITHOUT screenshot when page loads
+    setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 500);
   }
 });
 
@@ -177,7 +189,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
     console.log('[Background] Window focused:', windowId);
-    setTimeout(() => captureAndSendContext(true), 100);
+    // Update context WITHOUT screenshot when window focused
+    setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 100);
   }
 });
 
@@ -187,7 +200,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ connected: isConnected });
   } else if (message.action === 'forceContextUpdate') {
     // Allow manual trigger from UI
-    captureAndSendContext(true);
+    captureAndSendContext({ forceUpdate: true });
+    sendResponse({ success: true });
+  } else if (message.action === 'updateContextNoScreenshot') {
+    // Trigger update but skip screenshot
+    captureAndSendContext({ forceUpdate: true, skipScreenshot: true });
     sendResponse({ success: true });
   }
   return true;
@@ -197,3 +214,106 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 connectWebSocket();
 
 console.log('[Background] Browser AI Assistant service worker started');
+
+// --- Full Page Screenshot Logic ---
+
+let offscreenCreating = null;
+
+async function setupOffscreenDocument(path) {
+  // Check if offscreen document exists
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(path)]
+  });
+
+  if (existingContexts.length > 0) {
+    return;
+  }
+
+  // Create offscreen document
+  if (offscreenCreating) {
+    await offscreenCreating;
+  } else {
+    offscreenCreating = chrome.offscreen.createDocument({
+      url: path,
+      reasons: ['BLOBS'],
+      justification: 'Stitching full page screenshot',
+    });
+    await offscreenCreating;
+    offscreenCreating = null;
+  }
+}
+
+async function captureFullPage(tabId) {
+  // 1. Get metrics
+  let metrics = null;
+  try {
+    metrics = await chrome.tabs.sendMessage(tabId, { action: 'getMetrics' });
+  } catch (e) {
+    console.log('[Background] Could not get metrics, fallback to viewport');
+    return null;
+  }
+  
+  if (!metrics) return null;
+  
+  // Guardrail: Skip if too large
+  if (metrics.height > 10000) {
+    console.warn('[Background] Page too long for full screenshot (>10k px), fallback to viewport');
+    return null;
+  }
+  
+  // Guardrail: If content is smaller than viewport, just use viewport capture
+  if (metrics.height <= metrics.viewportHeight) {
+    return await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
+  }
+
+  // 2. Setup offscreen
+  await setupOffscreenDocument('offscreen.html');
+  
+  // 3. Init canvas
+  await chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'init',
+    width: metrics.width,
+    height: metrics.height
+  });
+  
+  // 4. Scroll and capture
+  let y = 0;
+  // Limit iterations to prevent infinite loops
+  const maxIterations = 50; 
+  let iterations = 0;
+  
+  while (y < metrics.height && iterations < maxIterations) {
+    iterations++;
+    
+    await chrome.tabs.sendMessage(tabId, { action: 'scrollTo', x: 0, y: y });
+    // Wait for scroll/render
+    await new Promise(r => setTimeout(r, 150));
+    
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+    
+    await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'draw',
+      dataUrl,
+      x: 0,
+      y: y,
+      width: metrics.viewportWidth,
+      height: metrics.viewportHeight
+    });
+    
+    y += metrics.viewportHeight;
+  }
+  
+  // 5. Get result
+  const response = await chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'getResult'
+  });
+  
+  // Restore scroll
+  await chrome.tabs.sendMessage(tabId, { action: 'scrollTo', x: 0, y: 0 });
+  
+  return response.result;
+}
