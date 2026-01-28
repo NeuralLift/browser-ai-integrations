@@ -362,7 +362,22 @@ document.addEventListener('DOMContentLoaded', () => {
     bubbleDiv.className = 'bubble';
 
     if (message.role === 'user') {
-      bubbleDiv.textContent = message.text;
+      if (message.image) {
+        const img = document.createElement('img');
+        img.src = message.image;
+        img.style.maxHeight = '120px';
+        img.style.maxWidth = '200px';
+        img.style.objectFit = 'contain';
+        img.style.display = 'block';
+        img.style.marginBottom = '8px';
+        img.style.borderRadius = '4px';
+        img.style.border = '1px solid var(--border)';
+        img.style.cursor = 'pointer';
+        bubbleDiv.appendChild(img);
+      }
+      const textSpan = document.createElement('div');
+      textSpan.textContent = message.text;
+      bubbleDiv.appendChild(textSpan);
     } else {
       bubbleDiv.innerHTML = parseMarkdown(message.text);
 
@@ -506,8 +521,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Send message to backend
   async function sendMessage(messageText = null) {
-    const text = messageText || messageInput.value.trim();
-    if (!text || isProcessing) return;
+    let text = messageText || messageInput.value.trim();
+    
+    // Allow sending if there is text OR an image
+    // If only image is present, add default text
+    if ((!text && !currentImage) || isProcessing) return;
+
+    if (!text && currentImage) {
+      text = "Jelaskan gambar ini";
+    }
 
     // Ensure we have a valid session
     if (!currentSession) {
@@ -518,7 +540,12 @@ document.addEventListener('DOMContentLoaded', () => {
     isProcessing = true;
 
     // Add user message to UI and Session
-    const userMsg = { role: 'user', text: text, timestamp: Date.now() };
+    const userMsg = { 
+      role: 'user', 
+      text: text, 
+      image: currentImage,
+      timestamp: Date.now() 
+    };
     renderMessage(userMsg);
     SessionManager.addMessageToSession(currentSession.id, userMsg);
     
@@ -526,7 +553,12 @@ document.addEventListener('DOMContentLoaded', () => {
     currentSession = SessionManager.getSession(currentSession.id);
     currentSessionNameEl.textContent = currentSession.name;
 
+    // Capture current image for the request before clearing it from UI
+    const imageToSend = currentImage;
+
+    // Clear UI immediately
     messageInput.value = '';
+    if (currentImage) clearImage();
     sendBtn.disabled = true;
 
     showTyping();
@@ -558,12 +590,9 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           message: text,
           custom_instruction: instruction || undefined,
-          image: currentImage || undefined
+          image: imageToSend || undefined
         }),
       });
-
-      // Clear image after sending
-      if (currentImage) clearImage();
 
       hideTyping();
 
