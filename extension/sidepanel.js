@@ -410,13 +410,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const text = messageText || messageInput.value.trim();
     if (!text || isProcessing) return;
 
+    // Ensure we have a valid session
+    if (!currentSession) {
+      currentSession = SessionManager.createSession();
+      updateSessionUI();
+    }
+
     isProcessing = true;
 
     // Add user message to UI and Session
     const userMsg = { role: 'user', text: text, timestamp: Date.now() };
     renderMessage(userMsg);
     SessionManager.addMessageToSession(currentSession.id, userMsg);
-    // Update UI name if it changed
+    
+    // Refresh session from storage to get updated name
+    currentSession = SessionManager.getSession(currentSession.id);
     currentSessionNameEl.textContent = currentSession.name;
 
     messageInput.value = '';
