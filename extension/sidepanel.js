@@ -831,4 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   });
+
+  // Initialize on load
+  initialize();
 });
