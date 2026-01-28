@@ -362,7 +362,19 @@ document.addEventListener('DOMContentLoaded', () => {
     bubbleDiv.className = 'bubble';
 
     if (message.role === 'user') {
-      bubbleDiv.textContent = message.text;
+      if (message.image) {
+        const img = document.createElement('img');
+        img.src = message.image;
+        img.style.maxHeight = '150px';
+        img.style.maxWidth = '100%';
+        img.style.display = 'block';
+        img.style.marginBottom = '8px';
+        img.style.borderRadius = '4px';
+        bubbleDiv.appendChild(img);
+      }
+      const textSpan = document.createElement('div');
+      textSpan.textContent = message.text;
+      bubbleDiv.appendChild(textSpan);
     } else {
       bubbleDiv.innerHTML = parseMarkdown(message.text);
 
@@ -506,8 +518,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Send message to backend
   async function sendMessage(messageText = null) {
-    const text = messageText || messageInput.value.trim();
-    if (!text || isProcessing) return;
+    let text = messageText || messageInput.value.trim();
+    
+    // Allow sending if there is text OR an image
+    // If only image is present, add default text
+    if ((!text && !currentImage) || isProcessing) return;
+
+    if (!text && currentImage) {
+      text = "Jelaskan gambar ini";
+    }
 
     // Ensure we have a valid session
     if (!currentSession) {
@@ -518,7 +537,12 @@ document.addEventListener('DOMContentLoaded', () => {
     isProcessing = true;
 
     // Add user message to UI and Session
-    const userMsg = { role: 'user', text: text, timestamp: Date.now() };
+    const userMsg = { 
+      role: 'user', 
+      text: text, 
+      image: currentImage,
+      timestamp: Date.now() 
+    };
     renderMessage(userMsg);
     SessionManager.addMessageToSession(currentSession.id, userMsg);
     
