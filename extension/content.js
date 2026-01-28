@@ -175,6 +175,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       viewportHeight: window.innerHeight,
       devicePixelRatio: window.devicePixelRatio
     });
+  } else if (message.action === 'getScrollPosition') {
+    sendResponse({
+      x: window.scrollX,
+      y: window.scrollY
+    });
   } else if (message.action === 'scrollTo') {
     window.scrollTo(message.x, message.y);
     sendResponse({ success: true });

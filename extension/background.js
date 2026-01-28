@@ -172,16 +172,16 @@ function sanitizeContext(context) {
 // Listen for tab activation (switching tabs)
 chrome.tabs.onActivated.addListener((activeInfo) => {
   console.log('[Background] Tab activated:', activeInfo.tabId);
-  // Force immediate context update when switching tabs
-  setTimeout(() => captureAndSendContext(true), 100);
+  // Update context WITHOUT screenshot when switching tabs
+  setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 100);
 });
 
 // Listen for tab URL changes (navigation within tab)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.active) {
     console.log('[Background] Tab updated:', tab.url);
-    // Force immediate context update when page loads
-    setTimeout(() => captureAndSendContext(true), 500);
+    // Update context WITHOUT screenshot when page loads
+    setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 500);
   }
 });
 
@@ -189,7 +189,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
     console.log('[Background] Window focused:', windowId);
-    setTimeout(() => captureAndSendContext(true), 100);
+    // Update context WITHOUT screenshot when window focused
+    setTimeout(() => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }), 100);
   }
 });
 
