@@ -1,5 +1,7 @@
 # Browser AI Assistant
 
+![Browser AI Assistant Preview](preview.png)
+
 Browser AI Assistant adalah proyek integrasi AI dengan browser yang memungkinkan Anda untuk berinteraksi dengan asisten cerdas yang sadar akan konteks halaman web yang sedang Anda buka.
 
 Sistem ini terdiri dari dua komponen utama:
