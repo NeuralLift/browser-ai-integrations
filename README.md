@@ -82,7 +82,9 @@ Backend ditulis menggunakan Rust dan framework Axum.
     ├── manifest.json  # Konfigurasi ekstensi V3
     ├── background.js  # Service worker
     ├── content.js     # Script yang berjalan di halaman web
-    └── sidepanel.html # UI Chat
+    ├── sidepanel.html # UI Chat
+    ├── offscreen.html # Background processing (DOM parser)
+    └── popup.html     # Extension popup UI
 ```
 
 ## Teknologi
