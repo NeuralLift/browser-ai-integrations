@@ -280,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Add message to chat UI
-  function renderMessage(message) {
+  function renderMessage(message, autoScroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${message.role === 'user' ? 'user' : 'assistant'}`;
 
@@ -306,7 +306,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     messageDiv.appendChild(bubbleDiv);
     chatContainer.appendChild(messageDiv);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    
+    if (autoScroll) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
 
     // Hide quick actions if messages exist
     if (quickActionsEl) {
@@ -362,7 +365,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (quickActionsEl) quickActionsEl.style.display = 'flex';
     }
 
-    currentSession.messages.forEach(msg => renderMessage(msg));
+    // Render messages without auto-scroll for each
+    currentSession.messages.forEach(msg => renderMessage(msg, false));
+    
+    // Scroll to bottom once after all messages rendered
+    if (currentSession.messages.length > 0) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
 
     // Update session instruction input in settings
     sessionInstructionInput.value = currentSession.customInstruction || '';
