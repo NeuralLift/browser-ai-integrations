@@ -7,8 +7,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
+mod agent;
 mod dtos;
+mod handler;
+mod llm;
 mod models;
+mod tools;
+mod utils;
+
 use crate::models::{ChatRequest, ChatResponse, HealthResponse};
 
 
