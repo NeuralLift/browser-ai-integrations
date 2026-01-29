@@ -10,6 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 mod models;
 use crate::models::{ChatRequest, ChatResponse, HealthResponse};
 
+
 use rig::completion::Prompt;
 use rig::message::{ImageMediaType, Message, UserContent};
 use rig::prelude::*;
