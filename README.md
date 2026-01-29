@@ -25,39 +25,25 @@ Sistem ini terdiri dari dua komponen utama:
 
 ## Cara Instalasi
 
-### 1. Setup Backend
+### 1. Setup Backend (Pilih salah satu)
 
-Backend ditulis menggunakan Rust dan framework Axum.
+#### A. Backend Standar (Recommended)
 
-1. Masuk ke direktori backend:
+Backend utama dengan fitur lengkap (WebSocket, Privacy, dll).
 
-   ```bash
-   cd backend
-   ```
+1. Masuk ke direktori backend: `cd backend`
+2. Ikuti instruksi di folder tersebut.
 
-2. Buat file `.env` di dalam folder `backend` dan isi dengan API Key Anda:
+#### B. Backend Rig (Experimental/MVP)
 
-   ```env
-   GOOGLE_API_KEY=api_key_gemini_anda_disini
-   ```
+Backend alternatif menggunakan library Rig untuk integrasi AI yang lebih simpel.
 
-3. Jalankan server:
+1. Masuk ke direktori: `cd backend-rig`
+2. Salin `.env.example` menjadi `.env` dan isi `GOOGLE_API_KEY`.
+3. Jalankan server: `cargo run`.
+4. Lihat `backend-rig/TESTING_CHECKLIST.md` untuk panduan pengujian.
 
-   Mode Development:
-
-   ```bash
-   cargo run
-   ```
-
-   Mode Release (Lebih Cepat & Recommended):
-
-   ```bash
-   ./start.sh
-   # atau
-   cd backend && cargo run --release
-   ```
-
-   Server akan berjalan di `http://localhost:3000`.
+Server akan berjalan di `http://localhost:3000`. Pastikan hanya satu backend yang berjalan di port ini.
 
 ### 2. Setup Extension
 
@@ -78,13 +64,19 @@ Backend ditulis menggunakan Rust dan framework Axum.
 
 ```
 .
-├── backend/           # Source code server Rust
+├── backend/           # Source code server Rust (Standard)
 │   ├── src/
 │   │   ├── ai.rs      # Logika integrasi Gemini API
 │   │   ├── privacy.rs # Sanitasi data pengguna
 │   │   ├── ws.rs      # Handler WebSocket
 │   │   └── main.rs    # Entry point & server config
 │   └── Cargo.toml     # Dependencies Rust
+│
+├── backend-rig/       # Alternatif backend menggunakan Rig (Experimental)
+│   ├── src/
+│   │   ├── main.rs    # Entry point & handlers
+│   │   └── models.rs  # Data models
+│   └── Cargo.toml     # Dependencies Rig & Axum
 │
 └── extension/         # Source code ekstensi browser
     ├── manifest.json  # Konfigurasi ekstensi V3
