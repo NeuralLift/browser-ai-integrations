@@ -51,21 +51,7 @@ async fn chat_handler(
     // Add image if present
     if let Some(img_data) = &request.image {
         tracing::info!("Processing image from request");
-        let (media_type, data) = if let Some(stripped) = img_data.strip_prefix("data:image/png;base64,") {
-            (ImageMediaType::PNG, stripped)
-        } else if let Some(stripped) = img_data.strip_prefix("data:image/jpeg;base64,") {
-            (ImageMediaType::JPEG, stripped)
-        } else if let Some(stripped) = img_data.strip_prefix("data:image/webp;base64,") {
-            (ImageMediaType::WEBP, stripped)
-        } else {
-            tracing::warn!("Unrecognized image format, attempting as JPEG");
-            if let Some(comma_pos) = img_data.find(',') {
-                (ImageMediaType::JPEG, &img_data[comma_pos + 1..])
-            } else {
-                (ImageMediaType::JPEG, img_data.as_str())
-            }
-        };
-
+        let (media_type, data) = parse_image_data(img_data);
         parts.push(UserContent::image_base64(data, Some(media_type), None));
     }
 
@@ -76,7 +62,6 @@ async fn chat_handler(
     // Prompt the agent and handle the response
     match agent.prompt(prompt).await {
         Ok(response) => Json(ChatResponse {
-
             response,
             prompt_tokens: None,
             response_tokens: None,
@@ -90,6 +75,22 @@ async fn chat_handler(
                 response_tokens: None,
                 total_tokens: None,
             })
+        }
+    }
+}
+
+fn parse_image_data(img_data: &str) -> (ImageMediaType, &str) {
+    if let Some(stripped) = img_data.strip_prefix("data:image/png;base64,") {
+        (ImageMediaType::PNG, stripped)
+    } else if let Some(stripped) = img_data.strip_prefix("data:image/jpeg;base64,") {
+        (ImageMediaType::JPEG, stripped)
+    } else if let Some(stripped) = img_data.strip_prefix("data:image/webp;base64,") {
+        (ImageMediaType::WEBP, stripped)
+    } else {
+        if let Some(comma_pos) = img_data.find(',') {
+            (ImageMediaType::JPEG, &img_data[comma_pos + 1..])
+        } else {
+            (ImageMediaType::JPEG, img_data)
         }
     }
 }
@@ -127,4 +128,84 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_health_response_serialize() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert_eq!(json, r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn test_chat_request_deserialize() {
+        let json = r#"{
+            "message": "Hello",
+            "custom_instruction": "Be concise",
+            "image": "base64data"
+        }"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.message, "Hello");
+        assert_eq!(req.custom_instruction, Some("Be concise".to_string()));
+        assert_eq!(req.image, Some("base64data".to_string()));
+    }
+
+    #[test]
+    fn test_chat_response_serialize() {
+        let resp = ChatResponse {
+            response: "Hi".to_string(),
+            prompt_tokens: None,
+            response_tokens: None,
+            total_tokens: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        // Should not contain tokens since they are None and marked with skip_serializing_if
+        assert_eq!(json, r#"{"response":"Hi"}"#);
+
+        let resp_with_tokens = ChatResponse {
+            response: "Hi".to_string(),
+            prompt_tokens: Some(10),
+            response_tokens: Some(20),
+            total_tokens: Some(30),
+        };
+        let json_with_tokens = serde_json::to_string(&resp_with_tokens).unwrap();
+        assert!(json_with_tokens.contains(r#""prompt_tokens":10"#));
+        assert!(json_with_tokens.contains(r#""response_tokens":20"#));
+        assert!(json_with_tokens.contains(r#""total_tokens":30"#));
+    }
+
+    #[test]
+    fn test_base64_prefix_stripping() {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...";
+        let (media_type, data) = parse_image_data(png);
+        assert!(matches!(media_type, ImageMediaType::PNG));
+        assert_eq!(data, "iVBORw0KGgoAAAANSUhEUgAA...");
+
+        let jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...";
+        let (media_type, data) = parse_image_data(jpeg);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "/9j/4AAQSkZJRgABAQAAAQABAAD...");
+
+        let webp = "data:image/webp;base64,UklGRtAAAABXRUJQVlA4...";
+        let (media_type, data) = parse_image_data(webp);
+        assert!(matches!(media_type, ImageMediaType::WEBP));
+        assert_eq!(data, "UklGRtAAAABXRUJQVlA4...");
+
+        let unknown_with_comma = "image/tiff,somebase64data";
+        let (media_type, data) = parse_image_data(unknown_with_comma);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "somebase64data");
+
+        let raw_data = "somebase64datawithoutcomma";
+        let (media_type, data) = parse_image_data(raw_data);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "somebase64datawithoutcomma");
+    }
 }
