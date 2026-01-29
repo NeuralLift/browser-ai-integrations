@@ -7,19 +7,19 @@ function parseMarkdown(text) {
   // Fallback if libraries are not loaded
   if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
     console.warn('Markdown libraries not loaded');
-    return text; 
+    return text;
   }
 
   // Configure marked if not already configured
   if (!window.markedConfigured && typeof hljs !== 'undefined') {
     marked.setOptions({
-      highlight: function(code, lang) {
+      highlight: function (code, lang) {
         const language = hljs.getLanguage(lang) ? lang : 'plaintext';
         return hljs.highlight(code, { language }).value;
       },
       langPrefix: 'hljs language-',
       breaks: true,
-      gfm: true
+      gfm: true,
     });
     window.markedConfigured = true;
   }
@@ -39,34 +39,103 @@ function parseMarkdown(text) {
 // Basic Emoji Replacement (Common subset)
 function replaceEmojis(text) {
   const emojiMap = {
-    ':smile:': '😄', ':smiley:': '😃', ':grinning:': '😀', ':blush:': '😊', ':wink:': '😉',
-    ':heart_eyes:': '😍', ':kissing_heart:': '😘', ':stuck_out_tongue:': '😛',
-    ':sunglasses:': '😎', ':nerd_face:': '🤓', ':thinking_face:': '🤔',
-    ':neutral_face:': '😐', ':expressionless:': '😑', ':no_mouth:': '😶',
-    ':smirk:': '😏', ':persevere:': '😣', ':disappointed_relieved:': '😥',
-    ':open_mouth:': '😮', ':zipper_mouth_face:': '🤐', ':hushed:': '😯',
-    ':sleepy:': '😪', ':tired_face:': '😫', ':sleeping:': '😴', ':relieved:': '😌',
-    ':stuck_out_tongue_winking_eye:': '😜', ':stuck_out_tongue_closed_eyes:': '😝',
-    ':drooling_face:': '🤤', ':unamused:': '😒', ':sweat:': '😓', ':pensive:': '😔',
-    ':confused:': '😕', ':upside_down_face:': '🙃', ':money_mouth_face:': '🤑',
-    ':astonished:': '😲', ':frowning:': 'frowning', ':slight_frown:': '🙁',
-    ':confounded:': '😖', ':disappointed:': '😞', ':worried:': '😟',
-    ':triumph:': '😤', ':cry:': '😢', ':sob:': '😭', ':frowning_face:': '😦',
-    ':anguished:': '😧', ':fearful:': '😨', ':weary:': '😩', ':exploding_head:': '🤯',
-    ':grimacing:': '😬', ':anxious_face_with_sweat:': '😰', ':scream:': '😱',
-    ':flushed:': '😳', ':dizzy_face:': '😵', ':rage:': '😡', ':angry:': '😠',
-    ':mask:': '😷', ':thermometer_face:': '🤒', ':head_bandage:': '🤕',
-    ':nauseated_face:': '🤢', ':sneezing_face:': '🤧', ':innocent:': '😇',
-    ':cowboy_hat_face:': '🤠', ':clown_face:': '🤡', ':lying_face:': '🤥',
-    ':shushing_face:': '🤫', ':hand_over_mouth:': '🤭', ':monocle_face:': '🧐',
-    ':thumbsup:': '👍', ':thumbsdown:': '👎', ':ok_hand:': '👌', ':point_up:': '☝️',
-    ':point_down:': '👇', ':point_left:': '👈', ':point_right:': '👉',
-    ':raised_hands:': '🙌', ':pray:': '🙏', ':clap:': '👏', ':muscle:': '💪',
-    ':metal:': '🤘', ':fu:': '🖕', ':top:': '🔝', ':soon:': '🔜',
-    ':on:': '🔛', ':end:': '🔚', ':back:': '🔙', ':fire:': '🔥',
-    ':rocket:': '🚀', ':sparkles:': '✨', ':star:': '⭐', ':heart:': '❤️',
-    ':broken_heart:': '💔', ':warning:': '⚠️', ':check:': '✅', ':x:': '❌',
-    ':question:': '❓', ':exclamation:': '❗', ':bulb:': '💡', ':zzz:': '💤'
+    ':smile:': '😄',
+    ':smiley:': '😃',
+    ':grinning:': '😀',
+    ':blush:': '😊',
+    ':wink:': '😉',
+    ':heart_eyes:': '😍',
+    ':kissing_heart:': '😘',
+    ':stuck_out_tongue:': '😛',
+    ':sunglasses:': '😎',
+    ':nerd_face:': '🤓',
+    ':thinking_face:': '🤔',
+    ':neutral_face:': '😐',
+    ':expressionless:': '😑',
+    ':no_mouth:': '😶',
+    ':smirk:': '😏',
+    ':persevere:': '😣',
+    ':disappointed_relieved:': '😥',
+    ':open_mouth:': '😮',
+    ':zipper_mouth_face:': '🤐',
+    ':hushed:': '😯',
+    ':sleepy:': '😪',
+    ':tired_face:': '😫',
+    ':sleeping:': '😴',
+    ':relieved:': '😌',
+    ':stuck_out_tongue_winking_eye:': '😜',
+    ':stuck_out_tongue_closed_eyes:': '😝',
+    ':drooling_face:': '🤤',
+    ':unamused:': '😒',
+    ':sweat:': '😓',
+    ':pensive:': '😔',
+    ':confused:': '😕',
+    ':upside_down_face:': '🙃',
+    ':money_mouth_face:': '🤑',
+    ':astonished:': '😲',
+    ':frowning:': 'frowning',
+    ':slight_frown:': '🙁',
+    ':confounded:': '😖',
+    ':disappointed:': '😞',
+    ':worried:': '😟',
+    ':triumph:': '😤',
+    ':cry:': '😢',
+    ':sob:': '😭',
+    ':frowning_face:': '😦',
+    ':anguished:': '😧',
+    ':fearful:': '😨',
+    ':weary:': '😩',
+    ':exploding_head:': '🤯',
+    ':grimacing:': '😬',
+    ':anxious_face_with_sweat:': '😰',
+    ':scream:': '😱',
+    ':flushed:': '😳',
+    ':dizzy_face:': '😵',
+    ':rage:': '😡',
+    ':angry:': '😠',
+    ':mask:': '😷',
+    ':thermometer_face:': '🤒',
+    ':head_bandage:': '🤕',
+    ':nauseated_face:': '🤢',
+    ':sneezing_face:': '🤧',
+    ':innocent:': '😇',
+    ':cowboy_hat_face:': '🤠',
+    ':clown_face:': '🤡',
+    ':lying_face:': '🤥',
+    ':shushing_face:': '🤫',
+    ':hand_over_mouth:': '🤭',
+    ':monocle_face:': '🧐',
+    ':thumbsup:': '👍',
+    ':thumbsdown:': '👎',
+    ':ok_hand:': '👌',
+    ':point_up:': '☝️',
+    ':point_down:': '👇',
+    ':point_left:': '👈',
+    ':point_right:': '👉',
+    ':raised_hands:': '🙌',
+    ':pray:': '🙏',
+    ':clap:': '👏',
+    ':muscle:': '💪',
+    ':metal:': '🤘',
+    ':fu:': '🖕',
+    ':top:': '🔝',
+    ':soon:': '🔜',
+    ':on:': '🔛',
+    ':end:': '🔚',
+    ':back:': '🔙',
+    ':fire:': '🔥',
+    ':rocket:': '🚀',
+    ':sparkles:': '✨',
+    ':star:': '⭐',
+    ':heart:': '❤️',
+    ':broken_heart:': '💔',
+    ':warning:': '⚠️',
+    ':check:': '✅',
+    ':x:': '❌',
+    ':question:': '❓',
+    ':exclamation:': '❗',
+    ':bulb:': '💡',
+    ':zzz:': '💤',
   };
 
   return text.replace(/:[a-z0-9_]+:/g, (match) => {
@@ -77,62 +146,62 @@ function replaceEmojis(text) {
 // Enhance code blocks with copy button and language label
 function enhanceCodeBlocks(container) {
   const pres = container.querySelectorAll('pre');
-  pres.forEach(pre => {
+  pres.forEach((pre) => {
     // Check if already processed
     if (pre.parentNode.classList.contains('code-block-wrapper')) return;
 
     const code = pre.querySelector('code');
     let lang = 'text';
     if (code) {
-        // hljs adds class like 'hljs language-javascript'
-        const classes = code.className.split(' ');
-        const langClass = classes.find(c => c.startsWith('language-'));
-        if (langClass) lang = langClass.replace('language-', '');
+      // hljs adds class like 'hljs language-javascript'
+      const classes = code.className.split(' ');
+      const langClass = classes.find((c) => c.startsWith('language-'));
+      if (langClass) lang = langClass.replace('language-', '');
     }
 
     // Create wrapper
     const wrapper = document.createElement('div');
     wrapper.className = 'code-block-wrapper';
     pre.parentNode.insertBefore(wrapper, pre);
-    
+
     // Create Header
     const header = document.createElement('div');
     header.className = 'code-header';
-    
+
     const langSpan = document.createElement('span');
     langSpan.textContent = lang;
-    
+
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
     copyBtn.innerHTML = `
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         Copy
     `;
-    
+
     copyBtn.addEventListener('click', async () => {
-        const text = code ? code.innerText : pre.innerText;
-        try {
-            await navigator.clipboard.writeText(text);
-            copyBtn.innerHTML = `
+      const text = code ? code.innerText : pre.innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.innerHTML = `
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Copied!
             `;
-            copyBtn.classList.add('copied');
-            setTimeout(() => {
-                copyBtn.innerHTML = `
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.innerHTML = `
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     Copy
                 `;
-                copyBtn.classList.remove('copied');
-            }, 2000);
-        } catch (err) {
-            console.error('Failed to copy', err);
-        }
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy', err);
+      }
     });
 
     header.appendChild(langSpan);
     header.appendChild(copyBtn);
-    
+
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
   });
@@ -177,7 +246,7 @@ const SessionManager = {
       name: 'Chat Baru',
       messages: [],
       createdAt: Date.now(),
-      customInstruction: ''
+      customInstruction: '',
     };
 
     // Limit to 10 sessions
@@ -194,12 +263,12 @@ const SessionManager = {
 
   getSession(id) {
     const sessions = this.getSessions();
-    return sessions.find(s => s.id === id);
+    return sessions.find((s) => s.id === id);
   },
 
   updateSession(id, updates) {
     const sessions = this.getSessions();
-    const index = sessions.findIndex(s => s.id === id);
+    const index = sessions.findIndex((s) => s.id === id);
     if (index !== -1) {
       sessions[index] = { ...sessions[index], ...updates };
       this.saveSessions(sessions);
@@ -210,7 +279,7 @@ const SessionManager = {
 
   deleteSession(id) {
     let sessions = this.getSessions();
-    sessions = sessions.filter(s => s.id !== id);
+    sessions = sessions.filter((s) => s.id !== id);
     this.saveSessions(sessions);
   },
 
@@ -228,17 +297,20 @@ const SessionManager = {
 
       this.updateSession(id, session);
     }
-  }
+  },
 };
 
 // Settings Manager
 const SettingsManager = {
   getSettings() {
     try {
-      return JSON.parse(localStorage.getItem('ai-settings') || JSON.stringify({
-        globalInstruction: '',
-        screenshotDefault: false
-      }));
+      return JSON.parse(
+        localStorage.getItem('ai-settings') ||
+          JSON.stringify({
+            globalInstruction: '',
+            screenshotDefault: false,
+          })
+      );
     } catch (e) {
       console.error('Error parsing settings:', e);
       return { globalInstruction: '', screenshotDefault: false };
@@ -251,7 +323,7 @@ const SettingsManager = {
     } catch (e) {
       console.error('Error saving settings:', e);
     }
-  }
+  },
 };
 
 // Wait for DOM to be ready
@@ -272,7 +344,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const currentSessionNameEl = document.getElementById('current-session-name');
   const settingsBtn = document.getElementById('settings-btn');
   const screenshotToggle = document.getElementById('screenshot-toggle');
-  const screenshotModeToggle = document.getElementById('screenshot-mode-toggle');
+  const screenshotModeToggle = document.getElementById(
+    'screenshot-mode-toggle'
+  );
   const screenshotModeLabel = document.getElementById('screenshot-mode-label');
 
   // Modals
@@ -287,13 +361,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
   const sessionListEl = document.getElementById('session-list');
   const quickActionsEl = document.querySelector('.quick-actions');
-  
+
   let sessionToDelete = null; // Track which session to delete
 
   // Inputs in Settings
   const globalInstructionInput = document.getElementById('global-instruction');
-  const sessionInstructionInput = document.getElementById('session-instruction');
-  const settingScreenshotDefault = document.getElementById('setting-screenshot-default');
+  const sessionInstructionInput = document.getElementById(
+    'session-instruction'
+  );
+  const settingScreenshotDefault = document.getElementById(
+    'setting-screenshot-default'
+  );
 
   // Input & Attach Elements
   const imageUploadInput = document.getElementById('image-upload');
@@ -387,12 +465,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof renderMathInElement !== 'undefined') {
         renderMathInElement(bubbleDiv, {
           delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\(', right: '\\)', display: false},
-            {left: '\\[', right: '\\]', display: true}
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true },
           ],
-          throwOnError: false
+          throwOnError: false,
         });
       }
 
@@ -413,7 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     messageDiv.appendChild(bubbleDiv);
     chatContainer.appendChild(messageDiv);
-    
+
     if (autoScroll) {
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
@@ -473,8 +551,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Render messages without auto-scroll for each
-    currentSession.messages.forEach(msg => renderMessage(msg, false));
-    
+    currentSession.messages.forEach((msg) => renderMessage(msg, false));
+
     // Scroll to bottom once after all messages rendered
     if (currentSession.messages.length > 0) {
       chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -524,13 +602,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Send message to backend
   async function sendMessage(messageText = null) {
     let text = messageText || messageInput.value.trim();
-    
+
     // Allow sending if there is text OR an image
     // If only image is present, add default text
     if ((!text && !currentImage) || isProcessing) return;
 
     if (!text && currentImage) {
-      text = "Jelaskan gambar ini";
+      text = 'Jelaskan gambar ini';
     }
 
     // Ensure we have a valid session
@@ -542,15 +620,15 @@ document.addEventListener('DOMContentLoaded', () => {
     isProcessing = true;
 
     // Add user message to UI and Session
-    const userMsg = { 
-      role: 'user', 
-      text: text, 
+    const userMsg = {
+      role: 'user',
+      text: text,
       image: currentImage,
-      timestamp: Date.now() 
+      timestamp: Date.now(),
     };
     renderMessage(userMsg);
     SessionManager.addMessageToSession(currentSession.id, userMsg);
-    
+
     // Refresh session from storage to get updated name
     currentSession = SessionManager.getSession(currentSession.id);
     currentSessionNameEl.textContent = currentSession.name;
@@ -569,11 +647,18 @@ document.addEventListener('DOMContentLoaded', () => {
       // Handle screenshot toggle
       if (screenshotToggle.checked) {
         const fullPage = screenshotModeToggle.checked;
-        console.log(`[Sidepanel] Capturing ${fullPage ? 'full page' : 'viewport'} screenshot...`);
-        await chrome.runtime.sendMessage({ action: 'forceContextUpdate', fullPage });
+        console.log(
+          `[Sidepanel] Capturing ${fullPage ? 'full page' : 'viewport'} screenshot...`
+        );
+        await chrome.runtime.sendMessage({
+          action: 'forceContextUpdate',
+          fullPage,
+        });
       } else {
         console.log('[Sidepanel] Skipping screenshot capture (toggle OFF)');
-        await chrome.runtime.sendMessage({ action: 'updateContextNoScreenshot' });
+        await chrome.runtime.sendMessage({
+          action: 'updateContextNoScreenshot',
+        });
       }
 
       // Prepare Custom Instruction
@@ -591,7 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           message: text,
           custom_instruction: instruction || undefined,
-          image: imageToSend || undefined
+          image: imageToSend || undefined,
         }),
       });
 
@@ -610,18 +695,21 @@ document.addEventListener('DOMContentLoaded', () => {
         tokens: {
           prompt: data.prompt_tokens,
           response: data.response_tokens,
-          total: data.total_tokens
-        }
+          total: data.total_tokens,
+        },
       };
 
       renderMessage(assistantMsg);
       SessionManager.addMessageToSession(currentSession.id, assistantMsg);
       updateStatus(true);
-
     } catch (error) {
       hideTyping();
       console.error('Error sending message:', error);
-      const errorMsg = { role: 'assistant', text: '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`', timestamp: Date.now() };
+      const errorMsg = {
+        role: 'assistant',
+        text: '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`',
+        timestamp: Date.now(),
+      };
       renderMessage(errorMsg);
       updateStatus(false);
     } finally {
@@ -634,7 +722,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Get and display current tab info
   async function refreshTabInfo() {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
       if (tab && tab.title) {
         updatePageInfo(tab.title, tab.url);
       }
@@ -652,17 +743,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initSession();
     await refreshTabInfo();
-    
+
     // Start periodic connection check (every 5 seconds)
     setInterval(checkConnectionStatus, 5000);
   }
-  
+
   // Check connection status
   async function checkConnectionStatus() {
     try {
-      const response = await fetch('http://localhost:3000/health', { 
+      const response = await fetch('http://localhost:3000/health', {
         method: 'GET',
-        signal: AbortSignal.timeout(3000) // 3 second timeout
+        signal: AbortSignal.timeout(3000), // 3 second timeout
       });
       updateStatus(response.ok);
     } catch {
@@ -676,7 +767,7 @@ document.addEventListener('DOMContentLoaded', () => {
     messageInput.style.height = '';
   });
 
-  document.querySelectorAll('.quick-btn').forEach(btn => {
+  document.querySelectorAll('.quick-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const prompt = btn.getAttribute('data-prompt');
       if (prompt) {
@@ -691,10 +782,12 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshBtn.classList.add('spinning');
 
       try {
-        const action = screenshotToggle.checked ? 'forceContextUpdate' : 'updateContextNoScreenshot';
+        const action = screenshotToggle.checked
+          ? 'forceContextUpdate'
+          : 'updateContextNoScreenshot';
         await chrome.runtime.sendMessage({ action });
         await refreshTabInfo();
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 500));
       } catch (e) {
         console.error('Error refreshing context:', e);
       }
@@ -712,11 +805,11 @@ document.addEventListener('DOMContentLoaded', () => {
     modal.classList.remove('show');
   }
 
-  window.onclick = function(event) {
+  window.onclick = function (event) {
     if (event.target.classList.contains('modal')) {
       closeModal(event.target);
     }
-  }
+  };
 
   // Settings Modal
   if (settingsBtn) {
@@ -727,7 +820,10 @@ document.addEventListener('DOMContentLoaded', () => {
         globalInstructionInput.value = settings.globalInstruction || '';
         // Sync modal toggle with current dropdown state
         settingScreenshotDefault.checked = screenshotToggle.checked;
-        sessionInstructionInput.value = (currentSession && currentSession.customInstruction) ? currentSession.customInstruction : '';
+        sessionInstructionInput.value =
+          currentSession && currentSession.customInstruction
+            ? currentSession.customInstruction
+            : '';
         openModal(settingsModal);
       } catch (e) {
         console.error('Error opening settings:', e);
@@ -742,7 +838,7 @@ document.addEventListener('DOMContentLoaded', () => {
   saveSettingsBtn.addEventListener('click', () => {
     const settings = {
       globalInstruction: globalInstructionInput.value,
-      screenshotDefault: settingScreenshotDefault.checked
+      screenshotDefault: settingScreenshotDefault.checked,
     };
     SettingsManager.saveSettings(settings);
 
@@ -798,17 +894,21 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionListEl.innerHTML = '';
 
     if (sessions.length === 0) {
-      sessionListEl.innerHTML = '<div style="padding: 10px; color: var(--text-muted); text-align: center;">Belum ada riwayat chat</div>';
+      sessionListEl.innerHTML =
+        '<div style="padding: 10px; color: var(--text-muted); text-align: center;">Belum ada riwayat chat</div>';
       return;
     }
 
-    sessions.forEach(session => {
+    sessions.forEach((session) => {
       const el = document.createElement('div');
       el.style.padding = '10px';
       el.style.border = '1px solid var(--border)';
       el.style.borderRadius = '6px';
       el.style.cursor = 'pointer';
-      el.style.backgroundColor = session.id === currentSession.id ? 'var(--bg-tertiary)' : 'var(--bg-primary)';
+      el.style.backgroundColor =
+        session.id === currentSession.id
+          ? 'var(--bg-tertiary)'
+          : 'var(--bg-primary)';
       el.style.display = 'flex';
       el.style.justifyContent = 'space-between';
       el.style.alignItems = 'center';
@@ -923,7 +1023,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   screenshotModeToggle.addEventListener('change', () => {
-    screenshotModeLabel.textContent = screenshotModeToggle.checked ? 'Full Page' : 'Viewport';
+    screenshotModeLabel.textContent = screenshotModeToggle.checked
+      ? 'Full Page'
+      : 'Viewport';
   });
 
   imageUploadInput.addEventListener('change', (e) => {
@@ -935,9 +1037,9 @@ document.addEventListener('DOMContentLoaded', () => {
   clearImageBtn.addEventListener('click', clearImage);
 
   // Auto-resize textarea
-  messageInput.addEventListener('input', function() {
+  messageInput.addEventListener('input', function () {
     this.style.height = 'auto';
-    this.style.height = (this.scrollHeight) + 'px';
+    this.style.height = this.scrollHeight + 'px';
     if (this.value === '') this.style.height = '';
   });
 
@@ -970,11 +1072,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' || changeInfo.title) {
-      chrome.tabs.query({ active: true, currentWindow: true }, async ([activeTab]) => {
-        if (activeTab && activeTab.id === tabId) {
-          updatePageInfo(tab.title, tab.url);
+      chrome.tabs.query(
+        { active: true, currentWindow: true },
+        async ([activeTab]) => {
+          if (activeTab && activeTab.id === tabId) {
+            updatePageInfo(tab.title, tab.url);
+          }
         }
-      });
+      );
     }
   });
 

@@ -1,20 +1,19 @@
 use axum::{
+    Json, Router,
     extract::State,
     routing::{get, post},
-    Router,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{Any, CorsLayer};
 
-mod ws;
-mod privacy;
 mod ai;
+mod privacy;
+mod ws;
 
-use ws::ContextUpdate;
 use privacy::sanitize_context;
+use ws::ContextUpdate;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -55,9 +54,7 @@ async fn health_check() -> Json<HealthResponse> {
 }
 
 // Debug endpoint to see what context is being captured
-async fn debug_context(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+async fn debug_context(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let context_guard = state.current_context.read().await;
     match context_guard.as_ref() {
         Some(ctx) => Json(serde_json::json!({
@@ -82,20 +79,31 @@ async fn chat_handler(
     Json(request): Json<ChatRequest>,
 ) -> Json<ChatResponse> {
     tracing::info!("Chat request received: {}", request.message);
-    
+
     // Get current context
     let context_guard = state.current_context.read().await;
     let sanitized = context_guard.as_ref().map(|ctx| sanitize_context(ctx));
     drop(context_guard);
-    
+
     // Try to get AI response
     let (response_text, usage_metadata) = match ai::AiClient::new() {
         Ok(client) => {
-            match client.ask(sanitized.as_ref(), &request.message, request.custom_instruction.as_deref(), request.image.as_deref()).await {
+            match client
+                .ask(
+                    sanitized.as_ref(),
+                    &request.message,
+                    request.custom_instruction.as_deref(),
+                    request.image.as_deref(),
+                )
+                .await
+            {
                 Ok((reply, usage)) => (reply, usage),
                 Err(e) => {
                     tracing::error!("AI error: {}", e);
-                    (format!("AI service error: {}. Make sure GOOGLE_API_KEY is set.", e), None)
+                    (
+                        format!("AI service error: {}. Make sure GOOGLE_API_KEY is set.", e),
+                        None,
+                    )
                 }
             }
         }
@@ -114,7 +122,7 @@ async fn chat_handler(
             (reply, None)
         }
     };
-    
+
     let (prompt_tokens, response_tokens, total_tokens) = if let Some(usage) = usage_metadata {
         (
             Some(usage.prompt_token_count),
@@ -124,7 +132,7 @@ async fn chat_handler(
     } else {
         (None, None, None)
     };
-    
+
     Json(ChatResponse {
         response: response_text,
         prompt_tokens,
@@ -137,10 +145,10 @@ async fn chat_handler(
 async fn main() {
     // Load .env file if exists
     dotenvy::dotenv().ok();
-    
+
     // Initialize tracing
     tracing_subscriber::fmt::init();
-    
+
     // Debug: check if API key is set
     match std::env::var("GOOGLE_API_KEY") {
         Ok(key) => tracing::info!("GOOGLE_API_KEY is set (length: {})", key.len()),
@@ -171,6 +179,6 @@ async fn main() {
     // Bind to port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     tracing::info!("Server running on http://localhost:3000");
-    
+
     axum::serve(listener, app).await.unwrap();
 }

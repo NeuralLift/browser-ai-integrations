@@ -5,6 +5,7 @@
 Browser AI Assistant adalah proyek integrasi AI dengan browser yang memungkinkan Anda untuk berinteraksi dengan asisten cerdas yang sadar akan konteks halaman web yang sedang Anda buka.
 
 Sistem ini terdiri dari dua komponen utama:
+
 1. **Backend (Rust)**: Server yang menangani logika AI, memproses konteks halaman, dan berkomunikasi dengan API Google Gemini.
 2. **Browser Extension**: Ekstensi Chrome yang menangkap konten halaman dan screenshot untuk dikirim ke backend.
 
@@ -29,28 +30,33 @@ Sistem ini terdiri dari dua komponen utama:
 Backend ditulis menggunakan Rust dan framework Axum.
 
 1. Masuk ke direktori backend:
+
    ```bash
    cd backend
    ```
 
 2. Buat file `.env` di dalam folder `backend` dan isi dengan API Key Anda:
+
    ```env
    GOOGLE_API_KEY=api_key_gemini_anda_disini
    ```
 
 3. Jalankan server:
-   
+
    Mode Development:
+
    ```bash
    cargo run
    ```
-   
+
    Mode Release (Lebih Cepat & Recommended):
+
    ```bash
    ./start.sh
    # atau
    cd backend && cargo run --release
    ```
+
    Server akan berjalan di `http://localhost:3000`.
 
 ### 2. Setup Extension
@@ -94,6 +100,74 @@ Backend ditulis menggunakan Rust dan framework Axum.
 - **Backend**: Rust, Axum, Tokio, Reqwest, Serde.
 - **AI Model**: Google Gemini 2.5 Flash.
 - **Frontend**: HTML, JavaScript (Vanilla), Chrome Extension API (Manifest V3).
+
+## Panduan Kontribusi
+
+Terima kasih telah tertarik untuk berkontribusi pada **Browser AI Assistant**! Kami menyambut segala bentuk kontribusi, mulai dari laporan bug, saran fitur, hingga perbaikan kode.
+
+### Alur Kerja Kontribusi
+
+1.  **Fork** repositori ini ke akun GitHub Anda.
+2.  **Clone** hasil fork tersebut ke mesin lokal:
+    ```bash
+    git clone https://github.com/USERNAME/browser-ai-integrations.git
+    ```
+3.  **Buat Branch** baru untuk fitur atau perbaikan Anda:
+    ```bash
+    git checkout -b feat/nama-fitur-anda
+    # atau
+    git checkout -b fix/deskripsi-perbaikan
+    ```
+4.  **Lakukan Perubahan** dan pastikan kode Anda mengikuti standar kualitas kami.
+5.  **Commit** perubahan Anda dengan pesan yang deskriptif. Kami menyarankan format [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+6.  **Push** ke repositori fork Anda:
+    ```bash
+    git push origin HEAD
+    ```
+7.  **Buka Pull Request** dari branch Anda ke branch `master` kami.
+
+### Standar Pengembangan
+
+Untuk menjaga konsistensi dan kualitas kode, kami menerapkan standar berikut:
+
+#### 🛠️ Alat Pengembangan
+
+Kami menggunakan **Node.js** untuk mengelola alat pemformatan dan git hooks.
+
+- Pastikan Anda telah menjalankan `npm install` di root direktori untuk menginstal **Husky**, **Lint-staged**, dan **Prettier**.
+
+#### 🎨 Pemformatan Kode
+
+Kami mewajibkan semua file diformat dengan benar sebelum dikirimkan.
+
+- **Frontend (Extension)**: Menggunakan Prettier (indentasi 2 spasi).
+- **Backend (Rust)**: Menggunakan Rustfmt (indentasi 4 spasi, Edisi 2024).
+- **Otomatisasi**: Git hooks (Husky) akan secara otomatis memformat file yang di-stage saat Anda melakukan `git commit`.
+
+Jika Anda ingin menjalankan pemformatan secara manual:
+
+```bash
+npm run format       # Format file Frontend (JS, HTML, CSS, JSON)
+npm run format:rust  # Format file Backend (Rust)
+```
+
+#### 💻 Pengaturan Editor (VS Code)
+
+Jika Anda menggunakan VS Code, proyek ini sudah dilengkapi dengan pengaturan workspace:
+
+- **Format on Save**: Aktif secara otomatis.
+- **Ekstensi Rekomendasi**: Pastikan untuk menginstal ekstensi yang disarankan (Prettier, Rust Analyzer, EditorConfig) saat pertama kali membuka folder ini.
+
+### Melaporkan Masalah
+
+Jika Anda menemukan bug atau memiliki ide fitur, silakan buka **Issue** baru dengan informasi berikut:
+
+- Deskripsi singkat tentang masalah/fitur.
+- Langkah-langkah untuk mereproduksi (untuk bug).
+- Ekspektasi perilaku.
+- Screenshot (jika ada).
+
+---
 
 ## Lisensi
 

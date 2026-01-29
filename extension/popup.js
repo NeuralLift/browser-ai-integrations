@@ -32,12 +32,12 @@ function addMessage(text, isUser = false) {
 async function sendMessage() {
   const message = messageInput.value.trim();
   if (!message) return;
-  
+
   // Add user message to chat
   addMessage(message, true);
   messageInput.value = '';
   sendBtn.disabled = true;
-  
+
   try {
     const response = await fetch('http://localhost:3000/api/chat', {
       method: 'POST',
@@ -46,17 +46,19 @@ async function sendMessage() {
       },
       body: JSON.stringify({ message }),
     });
-    
+
     if (!response.ok) {
       throw new Error('Failed to get response');
     }
-    
+
     const data = await response.json();
     addMessage(data.response || 'No response received');
     updateStatus(true);
   } catch (error) {
     console.error('Error sending message:', error);
-    addMessage('Sorry, I could not connect to the backend. Make sure the server is running.');
+    addMessage(
+      'Sorry, I could not connect to the backend. Make sure the server is running.'
+    );
     updateStatus(false);
   } finally {
     sendBtn.disabled = false;

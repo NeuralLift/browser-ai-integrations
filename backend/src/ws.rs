@@ -1,5 +1,5 @@
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -27,26 +27,26 @@ pub async fn ws_handler(
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
-    
+
     tracing::info!("New WebSocket connection established");
-    
+
     // Send welcome message
     let welcome = serde_json::json!({
         "type": "connected",
         "message": "Connected to Browser AI Assistant backend"
     });
-    
+
     if let Err(e) = sender.send(Message::Text(welcome.to_string().into())).await {
         tracing::error!("Error sending welcome message: {}", e);
         return;
     }
-    
+
     // Handle incoming messages
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
                 tracing::debug!("Received text message: {} bytes", text.len());
-                
+
                 match serde_json::from_str::<ContextUpdate>(&text) {
                     Ok(context) => {
                         tracing::info!(
@@ -54,7 +54,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             context.url,
                             context.title
                         );
-                        
+
                         // Store the latest context
                         let mut current_context = state.current_context.write().await;
                         *current_context = Some(context);
@@ -81,6 +81,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             _ => {}
         }
     }
-    
+
     tracing::info!("WebSocket connection terminated");
 }
