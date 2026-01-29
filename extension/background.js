@@ -70,6 +70,7 @@ async function captureAndSendContext(options = {}) {
   // Handle legacy boolean argument (backwards compatibility)
   const forceUpdate = typeof options === 'boolean' ? options : (options.forceUpdate || false);
   const skipScreenshot = typeof options === 'object' ? (options.skipScreenshot || false) : false;
+  const fullPage = typeof options === 'object' ? (options.fullPage || false) : false;
 
   if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -113,15 +114,28 @@ async function captureAndSendContext(options = {}) {
     // Capture screenshot
     let screenshot = null;
     if (!skipScreenshot) {
-      try {
-        // Try full page first
-        screenshot = await captureFullPage(tab.id);
-      } catch (e) {
-        console.log('[Background] Full page capture failed, falling back to viewport:', e);
+      if (fullPage) {
+        // Full page mode - try to capture entire page
         try {
-          screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
-        } catch (e2) {
-          console.log('[Background] Viewport capture failed:', e2);
+          screenshot = await captureFullPage(tab.id);
+        } catch (e) {
+          console.log('[Background] Full page capture failed:', e.message);
+        }
+      }
+      
+      // If full page not requested or failed, capture viewport only
+      if (!screenshot) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 300 * attempt));
+            screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
+            if (screenshot) {
+              console.log('[Background] Viewport screenshot captured');
+              break;
+            }
+          } catch (e2) {
+            console.log(`[Background] Viewport capture attempt ${attempt + 1} failed:`, e2.message);
+          }
         }
       }
     }
@@ -198,15 +212,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'getConnectionStatus') {
     sendResponse({ connected: isConnected });
   } else if (message.action === 'forceContextUpdate') {
-    captureAndSendContext({ forceUpdate: true }).then(() => {
-      sendResponse({ success: true });
+    const fullPage = message.fullPage || false;
+    captureAndSendContext({ forceUpdate: true, fullPage }).then(() => {
+      setTimeout(() => sendResponse({ success: true }), 100);
     });
-    return true; // Keep channel open for async response
+    return true;
   } else if (message.action === 'updateContextNoScreenshot') {
     captureAndSendContext({ forceUpdate: true, skipScreenshot: true }).then(() => {
-      sendResponse({ success: true });
+      setTimeout(() => sendResponse({ success: true }), 50);
     });
-    return true; // Keep channel open for async response
+    return true;
   }
   return true;
 });
@@ -290,7 +305,7 @@ async function captureFullPage(tabId) {
       iterations++;
       
       await chrome.tabs.sendMessage(tabId, { action: 'scrollTo', x: 0, y: y });
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 500)); // 500ms to avoid Chrome rate limit
       
       const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
       

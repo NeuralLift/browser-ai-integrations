@@ -272,6 +272,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const currentSessionNameEl = document.getElementById('current-session-name');
   const settingsBtn = document.getElementById('settings-btn');
   const screenshotToggle = document.getElementById('screenshot-toggle');
+  const screenshotModeToggle = document.getElementById('screenshot-mode-toggle');
+  const screenshotModeLabel = document.getElementById('screenshot-mode-label');
 
   // Modals
   const settingsModal = document.getElementById('settings-modal');
@@ -566,8 +568,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       // Handle screenshot toggle
       if (screenshotToggle.checked) {
-        console.log('[Sidepanel] Capturing context with screenshot...');
-        await chrome.runtime.sendMessage({ action: 'forceContextUpdate' });
+        const fullPage = screenshotModeToggle.checked;
+        console.log(`[Sidepanel] Capturing ${fullPage ? 'full page' : 'viewport'} screenshot...`);
+        await chrome.runtime.sendMessage({ action: 'forceContextUpdate', fullPage });
       } else {
         console.log('[Sidepanel] Skipping screenshot capture (toggle OFF)');
         await chrome.runtime.sendMessage({ action: 'updateContextNoScreenshot' });
@@ -913,6 +916,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   screenshotToggle.addEventListener('click', (e) => {
     e.stopPropagation();
+  });
+
+  screenshotModeToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  screenshotModeToggle.addEventListener('change', () => {
+    screenshotModeLabel.textContent = screenshotModeToggle.checked ? 'Full Page' : 'Viewport';
   });
 
   imageUploadInput.addEventListener('change', (e) => {
