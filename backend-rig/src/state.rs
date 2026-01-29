@@ -1,14 +1,15 @@
-use rig::prelude::*;
+use crate::llm::GeminiProvider;
+use rig::client::ProviderClient;
 use rig::providers::gemini;
 
 pub struct AppState {
-    pub gemini_client: gemini::Client,
+    pub llm: GeminiProvider,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            gemini_client: gemini::Client::from_env(),
+            llm: GeminiProvider::new(gemini::Client::from_env()),
         }
     }
 }

@@ -15,7 +15,10 @@ mod state;
 mod tools;
 mod utils;
 
-use crate::models::{ChatRequest, ChatResponse, HealthResponse};
+use crate::models::{ChatRequest, ChatResponse};
+#[cfg(test)]
+use crate::models::HealthResponse;
+#[cfg(test)]
 use rig::message::ImageMediaType;
 
 use crate::state::AppState;
@@ -51,21 +54,7 @@ pub async fn chat_handler(
 }
 
 
-fn parse_image_data(img_data: &str) -> (ImageMediaType, &str) {
-    if let Some(stripped) = img_data.strip_prefix("data:image/png;base64,") {
-        (ImageMediaType::PNG, stripped)
-    } else if let Some(stripped) = img_data.strip_prefix("data:image/jpeg;base64,") {
-        (ImageMediaType::JPEG, stripped)
-    } else if let Some(stripped) = img_data.strip_prefix("data:image/webp;base64,") {
-        (ImageMediaType::WEBP, stripped)
-    } else {
-        if let Some(comma_pos) = img_data.find(',') {
-            (ImageMediaType::JPEG, &img_data[comma_pos + 1..])
-        } else {
-            (ImageMediaType::JPEG, img_data)
-        }
-    }
-}
+
 
 #[tokio::main]
 async fn main() {
@@ -93,6 +82,7 @@ async fn main() {
 mod tests {
     use super::*;
     use serde_json;
+    use crate::llm::parse_image_data;
 
     #[test]
     fn test_health_response_serialize() {
