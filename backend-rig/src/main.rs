@@ -8,10 +8,13 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 mod agent;
+mod config;
 mod dtos;
+mod error;
 mod handler;
 mod llm;
 mod models;
+mod state;
 mod tools;
 mod utils;
 
@@ -24,9 +27,7 @@ use rig::prelude::*;
 use rig::providers::gemini;
 use rig::OneOrMany;
 
-struct AppState {
-    gemini_client: gemini::Client,
-}
+use crate::state::AppState;
 
 async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
@@ -105,17 +106,14 @@ fn parse_image_data(img_data: &str) -> (ImageMediaType, &str) {
 
 #[tokio::main]
 async fn main() {
-    // Load .env file if exists
-    dotenvy::dotenv().ok();
+    // Load config
+    let config = config::AppConfig::from_env();
 
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Initialize Gemini client from environment
-    let gemini_client = gemini::Client::from_env();
-
     // Create shared state
-    let state = Arc::new(AppState { gemini_client });
+    let state = Arc::new(AppState::new());
 
     // Configure CORS
     let cors = CorsLayer::new()
@@ -130,8 +128,8 @@ async fn main() {
         .with_state(state)
         .layer(cors);
 
-    // Bind to port 3000
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    // Bind to port
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("Server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
