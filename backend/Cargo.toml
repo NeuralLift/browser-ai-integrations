@@ -16,3 +16,6 @@ regex = "1.10"
 reqwest = { version = "0.12", features = ["json"] }
 dotenvy = "0.15"
 urlencoding = "2.1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+chrono = { version = "0.4", features = ["serde"] }
+

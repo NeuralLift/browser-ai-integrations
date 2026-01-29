@@ -1,14 +1,17 @@
 use axum::{
     Json, Router,
-    extract::State,
-    routing::{get, post},
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
 mod ai;
+mod memory;
 mod privacy;
 mod ws;
 
@@ -18,6 +21,7 @@ use ws::ContextUpdate;
 #[derive(Clone)]
 pub struct AppState {
     pub current_context: Arc<RwLock<Option<ContextUpdate>>>,
+    pub memory_pool: SqlitePool,
 }
 
 #[derive(Serialize)]
@@ -41,6 +45,16 @@ struct ChatResponse {
     response_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     total_tokens: Option<i32>,
+}
+
+#[derive(Deserialize)]
+struct CreateMemoryRequest {
+    content: String,
+}
+
+#[derive(Serialize)]
+struct CreateMemoryResponse {
+    id: i64,
 }
 
 async fn hello_world() -> &'static str {
@@ -90,6 +104,7 @@ async fn chat_handler(
         Ok(client) => {
             match client
                 .ask(
+                    &state.memory_pool,
                     sanitized.as_ref(),
                     &request.message,
                     request.custom_instruction.as_deref(),
@@ -141,6 +156,43 @@ async fn chat_handler(
     })
 }
 
+async fn create_memory(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateMemoryRequest>,
+) -> Result<Json<CreateMemoryResponse>, StatusCode> {
+    tracing::info!("Creating new memory: {}", req.content);
+    match memory::add_memory(&state.memory_pool, &req.content).await {
+        Ok(id) => Ok(Json(CreateMemoryResponse { id })),
+        Err(e) => {
+            tracing::error!("Failed to add memory: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn list_memories(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<memory::Memory>>, StatusCode> {
+    match memory::get_recent_memories(&state.memory_pool, 50).await {
+        Ok(memories) => Ok(Json(memories)),
+        Err(e) => {
+            tracing::error!("Failed to list memories: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn delete_memory(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> StatusCode {
+    tracing::info!("Deleting memory ID: {}", id);
+    match memory::delete_memory(&state.memory_pool, id).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => {
+            tracing::error!("Failed to delete memory: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Load .env file if exists
@@ -155,9 +207,16 @@ async fn main() {
         Err(_) => tracing::warn!("GOOGLE_API_KEY not found! AI features will be disabled."),
     }
 
+    // Initialize SQLite pool
+    let pool = SqlitePool::connect("sqlite:memories.db?mode=rwc")
+        .await
+        .unwrap();
+    memory::init_db(&pool).await.unwrap();
+
     // Create shared state
     let state = Arc::new(AppState {
         current_context: Arc::new(RwLock::new(None)),
+        memory_pool: pool,
     });
 
     // Configure CORS to allow chrome-extension:// origins
@@ -173,6 +232,8 @@ async fn main() {
         .route("/debug/context", get(debug_context))
         .route("/ws", get(ws::ws_handler))
         .route("/api/chat", post(chat_handler))
+        .route("/api/memory", get(list_memories).post(create_memory))
+        .route("/api/memory/{id}", delete(delete_memory))
         .layer(cors)
         .with_state(state);
 

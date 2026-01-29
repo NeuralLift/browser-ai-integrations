@@ -1,5 +1,6 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use std::env;
 
 use crate::privacy::SanitizedContext;
@@ -23,8 +24,26 @@ struct Content {
 #[derive(Debug, Serialize, Clone)]
 #[serde(untagged)]
 enum Part {
-    Text { text: String },
-    InlineData { inline_data: InlineData },
+    Text {
+        text: String,
+    },
+    InlineData {
+        inline_data: InlineData,
+    },
+    FunctionResponse {
+        #[serde(rename = "functionResponse")]
+        function_response: FunctionResponseData,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCallData,
+    },
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct FunctionResponseData {
+    name: String,
+    response: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -34,12 +53,25 @@ struct InlineData {
 }
 
 #[derive(Debug, Serialize)]
-struct Tool {
-    google_search: GoogleSearchTool,
+#[serde(untagged)]
+enum Tool {
+    GoogleSearch {
+        google_search: GoogleSearchTool,
+    },
+    FunctionDeclarations {
+        function_declarations: Vec<FunctionDeclaration>,
+    },
 }
 
 #[derive(Debug, Serialize)]
 struct GoogleSearchTool {}
+
+#[derive(Debug, Serialize)]
+struct FunctionDeclaration {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
 
 // ============ Response Structures ============
 
@@ -74,7 +106,19 @@ struct CandidateContent {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum ResponsePart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCallData,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct FunctionCallData {
+    name: String,
+    args: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,12 +147,18 @@ impl AiClient {
 
     pub async fn ask(
         &self,
+        pool: &SqlitePool,
         context: Option<&SanitizedContext>,
         user_message: &str,
         custom_instruction: Option<&str>,
         user_image: Option<&str>,
     ) -> Result<(String, Option<UsageMetadata>), String> {
-        let system_prompt = self.build_system_prompt(context, custom_instruction);
+        // Fetch memories
+        let memories = crate::memory::get_recent_memories(pool, 10)
+            .await
+            .map_err(|e| format!("Failed to fetch memories: {}", e))?;
+
+        let system_prompt = self.build_system_prompt(context, custom_instruction, &memories);
         let full_prompt = format!("{}\n\nUser: {}", system_prompt, user_message);
 
         // Build parts - text first, then image if available
@@ -192,43 +242,149 @@ impl AiClient {
             }
         }
 
-        // Define native google_search tool
-        let tools = vec![Tool {
-            google_search: GoogleSearchTool {},
-        }];
+        // Define save_memory tool
+        let _save_memory_tool = FunctionDeclaration {
+            name: "save_memory".to_string(),
+            description: "Save important information about the user for future reference. Use this when the user asks you to remember something.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The information to remember"
+                    }
+                },
+                "required": ["content"]
+            }),
+        };
 
-        let initial_content = Content {
+        let mut contents = vec![Content {
             role: Some("user".to_string()),
             parts,
-        };
+        }];
 
-        let request = GeminiRequest {
-            contents: vec![initial_content],
-            tools: Some(tools),
-        };
+        // Tool loop (max 5 iterations)
+        for _ in 0..5 {
+            let request_tools = vec![
+                Tool::GoogleSearch {
+                    google_search: GoogleSearchTool {},
+                },
+                Tool::FunctionDeclarations {
+                    function_declarations: vec![FunctionDeclaration {
+                        name: "save_memory".to_string(),
+                        description: "Save important information about the user for future reference. Use this when the user asks you to remember something.".to_string(),
+                        parameters: serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": "The information to remember"
+                                }
+                            },
+                            "required": ["content"]
+                        }),
+                    }],
+                },
+            ];
 
-        // API call - google_search is handled automatically by Gemini
-        let response = self.call_gemini(&request).await?;
+            let request = GeminiRequest {
+                contents: contents.clone(),
+                tools: Some(request_tools),
+            };
 
-        // Extract text response (search results are embedded automatically)
-        if let Some(candidates) = &response.candidates {
-            if let Some(candidate) = candidates.first() {
-                let mut full_text = String::new();
-                for part in &candidate.content.parts {
-                    let ResponsePart::Text { text } = part;
-                    full_text.push_str(text);
+            // API call
+            let response = self.call_gemini(&request).await?;
+
+            if let Some(candidates) = &response.candidates {
+                if let Some(candidate) = candidates.first() {
+                    let mut function_calls_to_execute = Vec::new();
+                    let mut text_response = String::new();
+
+                    for part in &candidate.content.parts {
+                        match part {
+                            ResponsePart::FunctionCall { function_call } => {
+                                function_calls_to_execute.push(function_call.clone());
+                            }
+                            ResponsePart::Text { text } => {
+                                text_response.push_str(text);
+                            }
+                        }
+                    }
+
+                    if function_calls_to_execute.is_empty() {
+                        return Ok((text_response, response.usage_metadata));
+                    }
+
+                    // Process function calls
+                    // 1. Add model's turn to history
+                    let mut model_parts = Vec::new();
+                    if !text_response.is_empty() {
+                        model_parts.push(Part::Text {
+                            text: text_response.clone(),
+                        });
+                    }
+                    for fc in &function_calls_to_execute {
+                        model_parts.push(Part::FunctionCall {
+                            function_call: fc.clone(),
+                        });
+                    }
+                    contents.push(Content {
+                        role: Some("model".to_string()),
+                        parts: model_parts,
+                    });
+
+                    // 2. Execute functions and add tool outputs
+                    for fc in function_calls_to_execute {
+                        if fc.name == "save_memory" {
+                            let content = fc
+                                .args
+                                .get("content")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+
+                            tracing::info!("Executing save_memory tool: {}", content);
+
+                            let result = match crate::memory::add_memory(pool, content).await {
+                                Ok(id) => serde_json::json!({ "success": true, "id": id }),
+                                Err(e) => {
+                                    serde_json::json!({ "success": false, "error": e.to_string() })
+                                }
+                            };
+
+                            contents.push(Content {
+                                role: Some("function".to_string()),
+                                parts: vec![Part::FunctionResponse {
+                                    function_response: FunctionResponseData {
+                                        name: "save_memory".to_string(),
+                                        response: result,
+                                    },
+                                }],
+                            });
+                        } else {
+                            // Unknown function
+                            contents.push(Content {
+                                role: Some("function".to_string()),
+                                parts: vec![Part::FunctionResponse {
+                                    function_response: FunctionResponseData {
+                                        name: fc.name.clone(),
+                                        response: serde_json::json!({ "error": "Unknown function" })
+                                    }
+                                }]
+                            });
+                        }
+                    }
+
+                    // Loop continues to send tool outputs back to model
+                    continue;
                 }
-                if !full_text.is_empty() {
-                    return Ok((full_text, response.usage_metadata));
-                }
+            }
+
+            if let Some(error) = response.error {
+                return Err(format!("API error: {}", error.message));
             }
         }
 
-        if let Some(error) = response.error {
-            return Err(format!("API error: {}", error.message));
-        }
-
-        Err("Tidak ada respons dari AI".to_string())
+        Err("Max iterations reached or no response".to_string())
     }
 
     async fn call_gemini(&self, request: &GeminiRequest) -> Result<GeminiResponse, String> {
@@ -267,6 +423,7 @@ impl AiClient {
         &self,
         context: Option<&SanitizedContext>,
         custom_instruction: Option<&str>,
+        memories: &[crate::memory::Memory],
     ) -> String {
         let mut prompt = String::from(
             "Kamu adalah asisten browser yang membantu. Kamu bisa melihat apa yang sedang dijelajahi pengguna dan membantu mereka memahami kontennya.\n\n",
@@ -276,11 +433,21 @@ impl AiClient {
             prompt.push_str(&format!("INSTRUKSI TAMBAHAN: {}\n\n", instruction));
         }
 
+        // Inject memories
+        if !memories.is_empty() {
+            prompt.push_str("MEMORI PENGGUNA (hal-hal yang kamu ingat):\n");
+            for memory in memories {
+                prompt.push_str(&format!("- [{}] {}\n", memory.created_at, memory.content));
+            }
+            prompt.push_str("\n");
+        }
+
         prompt.push_str(
             "PENTING: Kamu memiliki akses ke:\n\
             1. Konten teks halaman browser\n\
             2. Screenshot dari tampilan browser saat ini\n\
-            3. Google Search - gunakan ini untuk mencari informasi terkini di internet\n\n\
+            3. Google Search - gunakan ini untuk mencari informasi terkini di internet\n\
+            4. save_memory - gunakan ini untuk menyimpan informasi penting tentang pengguna jika diminta\n\n\
             Gunakan screenshot untuk memahami elemen visual, layout, gambar, grafik, dan hal-hal yang mungkin tidak tertangkap dalam teks.\n\
             Gunakan Google Search ketika pengguna bertanya tentang informasi yang tidak ada di halaman, berita terkini, atau meminta kamu mencari sesuatu.\n\n\
             WAJIB: Selalu jawab dalam Bahasa Indonesia, kecuali pengguna secara eksplisit meminta bahasa lain.\n\n",
