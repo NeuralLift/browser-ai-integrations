@@ -366,6 +366,59 @@ function generateSnapshot() {
   return { tree };
 }
 
+// --- Visual Highlighting System ---
+
+let activeHighlight = null;
+let highlightTimeout = null;
+
+function removeHighlight() {
+  if (activeHighlight && activeHighlight.parentNode) {
+    activeHighlight.parentNode.removeChild(activeHighlight);
+  }
+  activeHighlight = null;
+  if (highlightTimeout) {
+    clearTimeout(highlightTimeout);
+    highlightTimeout = null;
+  }
+}
+
+function highlightElement(ref) {
+  // Remove any existing highlight
+  removeHighlight();
+
+  const element = refToElementMap.get(ref);
+  if (!element) return false;
+
+  const rect = element.getBoundingClientRect();
+
+  // Create highlight overlay
+  const highlight = document.createElement('div');
+  highlight.setAttribute('data-browser-agent-ui', 'true');
+  highlight.style.cssText = `
+    position: fixed;
+    top: ${rect.top}px;
+    left: ${rect.left}px;
+    width: ${rect.width}px;
+    height: ${rect.height}px;
+    border: 3px solid #ff0000;
+    background-color: rgba(255, 0, 0, 0.1);
+    pointer-events: none;
+    z-index: 999999;
+    box-sizing: border-box;
+    border-radius: 4px;
+  `;
+
+  document.body.appendChild(highlight);
+  activeHighlight = highlight;
+
+  // Auto-remove after 2 seconds
+  highlightTimeout = setTimeout(() => {
+    removeHighlight();
+  }, 2000);
+
+  return true;
+}
+
 /**
  * Executes a browser action command
  */
@@ -377,6 +430,7 @@ function executeAction(command) {
         return { success: true };
 
       case 'click_element': {
+        highlightElement(command.ref);
         const element = refToElementMap.get(command.ref);
         if (!element) {
           return {
@@ -389,6 +443,7 @@ function executeAction(command) {
       }
 
       case 'type_text': {
+        highlightElement(command.ref);
         const element = refToElementMap.get(command.ref);
         if (!element) {
           return {
@@ -465,6 +520,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'scrollTo') {
     window.scrollTo(message.x, message.y);
     sendResponse({ success: true });
+  } else if (message.action === 'highlight') {
+    const success = highlightElement(message.ref);
+    sendResponse({ success });
   } else if (message.action === 'execute') {
     const result = executeAction(message.command);
     sendResponse(result);
