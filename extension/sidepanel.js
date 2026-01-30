@@ -696,6 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         body: JSON.stringify({
           message: text,
+          stream: true,
           custom_instruction: instruction || undefined,
           image: imageToSend || undefined,
         }),
