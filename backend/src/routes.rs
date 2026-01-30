@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use crate::state::AppState;
 use crate::handler::agent_handler;
-use crate::models::WsMessage;
+use crate::models::ws::{ActionCommand, ActionResult, WsMessage};
 
 pub fn app_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
@@ -48,6 +48,35 @@ async fn handle_socket(mut socket: WebSocket) {
                 }
                 Ok(WsMessage::SessionUpdate { url, title }) => {
                     tracing::info!("Context update: url={}, title={:?}", url, title);
+                }
+                Ok(WsMessage::ActionCommand(cmd)) => {
+                    match &cmd {
+                        ActionCommand::NavigateTo { url } => {
+                            tracing::info!("ActionCommand: navigate_to url={}", url);
+                        }
+                        ActionCommand::ClickElement { ref_id } => {
+                            tracing::info!("ActionCommand: click_element ref={}", ref_id);
+                        }
+                        ActionCommand::TypeText { ref_id, text } => {
+                            tracing::info!("ActionCommand: type_text ref={}, text={}", ref_id, text);
+                        }
+                        ActionCommand::ScrollTo { x, y } => {
+                            tracing::info!("ActionCommand: scroll_to x={}, y={}", x, y);
+                        }
+                    }
+                    // Echo back as ActionResult (placeholder for actual execution)
+                    let result = WsMessage::ActionResult(ActionResult {
+                        success: true,
+                        error: None,
+                        data: None,
+                    });
+                    let response = serde_json::to_string(&result).unwrap();
+                    if socket.send(Message::Text(response.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(WsMessage::ActionResult(res)) => {
+                    tracing::info!("ActionResult received: success={}", res.success);
                 }
                 Ok(WsMessage::Unknown) => {
                     tracing::warn!("Unknown WebSocket message type");
