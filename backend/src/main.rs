@@ -1,184 +1,128 @@
-use axum::{
-    Json, Router,
-    extract::State,
-    routing::{get, post},
-};
-use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tower_http::cors::{Any, CorsLayer};
 
-mod ai;
-mod privacy;
-mod ws;
 
-use privacy::sanitize_context;
-use ws::ContextUpdate;
+mod agent;
+mod config;
+mod dtos;
+mod error;
+mod handler;
+mod llm;
+mod models;
+mod routes;
+mod state;
+mod tools;
+mod utils;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub current_context: Arc<RwLock<Option<ContextUpdate>>>,
-}
+#[cfg(test)]
+use crate::models::HealthResponse;
+#[cfg(test)]
+use rig::message::ImageMediaType;
 
-#[derive(Serialize)]
-struct HealthResponse {
-    status: String,
-}
+use crate::state::AppState;
 
-#[derive(Deserialize)]
-struct ChatRequest {
-    message: String,
-    custom_instruction: Option<String>,
-    image: Option<String>,
-}
 
-#[derive(Serialize)]
-struct ChatResponse {
-    response: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_tokens: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    response_tokens: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    total_tokens: Option<i32>,
-}
-
-async fn hello_world() -> &'static str {
-    "Hello World"
-}
-
-async fn health_check() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-    })
-}
-
-// Debug endpoint to see what context is being captured
-async fn debug_context(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    let context_guard = state.current_context.read().await;
-    match context_guard.as_ref() {
-        Some(ctx) => Json(serde_json::json!({
-            "has_context": true,
-            "url": ctx.url,
-            "title": ctx.title,
-            "content_length": ctx.content.as_ref().map(|c| c.len()),
-            "content_preview": ctx.content.as_ref().map(|c| {
-                if c.len() > 500 { format!("{}...", &c[..500]) } else { c.clone() }
-            }),
-            "has_screenshot": ctx.screenshot.is_some(),
-        })),
-        None => Json(serde_json::json!({
-            "has_context": false,
-            "message": "No context received yet. Make sure extension is connected."
-        })),
-    }
-}
-
-async fn chat_handler(
-    State(state): State<Arc<AppState>>,
-    Json(request): Json<ChatRequest>,
-) -> Json<ChatResponse> {
-    tracing::info!("Chat request received: {}", request.message);
-
-    // Get current context
-    let context_guard = state.current_context.read().await;
-    let sanitized = context_guard.as_ref().map(|ctx| sanitize_context(ctx));
-    drop(context_guard);
-
-    // Try to get AI response
-    let (response_text, usage_metadata) = match ai::AiClient::new() {
-        Ok(client) => {
-            match client
-                .ask(
-                    sanitized.as_ref(),
-                    &request.message,
-                    request.custom_instruction.as_deref(),
-                    request.image.as_deref(),
-                )
-                .await
-            {
-                Ok((reply, usage)) => (reply, usage),
-                Err(e) => {
-                    tracing::error!("AI error: {}", e);
-                    (
-                        format!("AI service error: {}. Make sure GOOGLE_API_KEY is set.", e),
-                        None,
-                    )
-                }
-            }
-        }
-        Err(e) => {
-            tracing::warn!("AI client not configured: {}", e);
-            // Fallback response when API key is not configured
-            let reply = if let Some(ctx) = sanitized {
-                format!(
-                    "I can see you're on: {}\n\nPage title: {}\n\n(AI integration requires GOOGLE_API_KEY environment variable)",
-                    ctx.url.unwrap_or_default(),
-                    ctx.title.unwrap_or_default()
-                )
-            } else {
-                "No browser context received yet. Open a webpage and the context will be captured automatically.\n\n(AI integration requires GOOGLE_API_KEY environment variable)".to_string()
-            };
-            (reply, None)
-        }
-    };
-
-    let (prompt_tokens, response_tokens, total_tokens) = if let Some(usage) = usage_metadata {
-        (
-            Some(usage.prompt_token_count),
-            usage.candidates_token_count,
-            Some(usage.total_token_count),
-        )
-    } else {
-        (None, None, None)
-    };
-
-    Json(ChatResponse {
-        response: response_text,
-        prompt_tokens,
-        response_tokens,
-        total_tokens,
-    })
-}
 
 #[tokio::main]
 async fn main() {
-    // Load .env file if exists
-    dotenvy::dotenv().ok();
+    // Load config
+    let config = config::AppConfig::from_env();
 
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Debug: check if API key is set
-    match std::env::var("GOOGLE_API_KEY") {
-        Ok(key) => tracing::info!("GOOGLE_API_KEY is set (length: {})", key.len()),
-        Err(_) => tracing::warn!("GOOGLE_API_KEY not found! AI features will be disabled."),
-    }
-
     // Create shared state
-    let state = Arc::new(AppState {
-        current_context: Arc::new(RwLock::new(None)),
-    });
-
-    // Configure CORS to allow chrome-extension:// origins
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let state = Arc::new(AppState::new());
 
     // Build the router
-    let app = Router::new()
-        .route("/", get(hello_world))
-        .route("/health", get(health_check))
-        .route("/debug/context", get(debug_context))
-        .route("/ws", get(ws::ws_handler))
-        .route("/api/chat", post(chat_handler))
-        .layer(cors)
-        .with_state(state);
+    let app = routes::app_router(state);
 
-    // Bind to port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    tracing::info!("Server running on http://localhost:3000");
+    // Bind to port
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    tracing::info!("Server running on http://{}", addr);
 
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+    use crate::llm::parse_image_data;
+    use crate::models::{ChatRequest, ChatResponse};
+
+    #[test]
+    fn test_health_response_serialize() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert_eq!(json, r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn test_chat_request_deserialize() {
+        let json = r#"{
+            "message": "Hello",
+            "custom_instruction": "Be concise",
+            "image": "base64data"
+        }"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.message, "Hello");
+        assert_eq!(req.custom_instruction, Some("Be concise".to_string()));
+        assert_eq!(req.image, Some("base64data".to_string()));
+    }
+
+    #[test]
+    fn test_chat_response_serialize() {
+        let resp = ChatResponse {
+            response: "Hi".to_string(),
+            prompt_tokens: None,
+            response_tokens: None,
+            total_tokens: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        // Should not contain tokens since they are None and marked with skip_serializing_if
+        assert_eq!(json, r#"{"response":"Hi"}"#);
+
+        let resp_with_tokens = ChatResponse {
+            response: "Hi".to_string(),
+            prompt_tokens: Some(10),
+            response_tokens: Some(20),
+            total_tokens: Some(30),
+        };
+        let json_with_tokens = serde_json::to_string(&resp_with_tokens).unwrap();
+        assert!(json_with_tokens.contains(r#""prompt_tokens":10"#));
+        assert!(json_with_tokens.contains(r#""response_tokens":20"#));
+        assert!(json_with_tokens.contains(r#""total_tokens":30"#));
+    }
+
+    #[test]
+    fn test_base64_prefix_stripping() {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...";
+        let (media_type, data) = parse_image_data(png);
+        assert!(matches!(media_type, ImageMediaType::PNG));
+        assert_eq!(data, "iVBORw0KGgoAAAANSUhEUgAA...");
+
+        let jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...";
+        let (media_type, data) = parse_image_data(jpeg);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "/9j/4AAQSkZJRgABAQAAAQABAAD...");
+
+        let webp = "data:image/webp;base64,UklGRtAAAABXRUJQVlA4...";
+        let (media_type, data) = parse_image_data(webp);
+        assert!(matches!(media_type, ImageMediaType::WEBP));
+        assert_eq!(data, "UklGRtAAAABXRUJQVlA4...");
+
+        let unknown_with_comma = "image/tiff,somebase64data";
+        let (media_type, data) = parse_image_data(unknown_with_comma);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "somebase64data");
+
+        let raw_data = "somebase64datawithoutcomma";
+        let (media_type, data) = parse_image_data(raw_data);
+        assert!(matches!(media_type, ImageMediaType::JPEG));
+        assert_eq!(data, "somebase64datawithoutcomma");
+    }
 }
