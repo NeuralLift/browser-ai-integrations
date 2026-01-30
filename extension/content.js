@@ -181,6 +181,9 @@ function extractPageContent() {
 
 // --- DomTreeGenerator (Snapshot System) ---
 
+// Store ref-to-element mapping from last snapshot
+let refToElementMap = new Map();
+
 const INTERACTIVE_SELECTORS = [
   'a[href]',
   'button',
@@ -328,6 +331,7 @@ function getElementBounds(el) {
 function generateSnapshot() {
   const tree = [];
   let refId = 1;
+  refToElementMap.clear();
 
   function traverse(element) {
     if (!element) return;
@@ -340,8 +344,10 @@ function generateSnapshot() {
     if (style.display === 'none' || style.visibility === 'hidden') return;
 
     if (isInteractive(element) && isElementVisible(element)) {
+      const id = refId++;
+      refToElementMap.set(id, element);
       tree.push({
-        id: refId++,
+        id: id,
         role: getElementRole(element),
         name: getAccessibleName(element),
         tag: element.tagName,
@@ -358,6 +364,58 @@ function generateSnapshot() {
 
   traverse(document.body);
   return { tree };
+}
+
+/**
+ * Executes a browser action command
+ */
+function executeAction(command) {
+  try {
+    switch (command.type) {
+      case 'navigate_to':
+        window.location.assign(command.url);
+        return { success: true };
+
+      case 'click_element': {
+        const element = refToElementMap.get(command.ref);
+        if (!element) {
+          return {
+            success: false,
+            error: `Element with ref ${command.ref} not found`,
+          };
+        }
+        element.click();
+        return { success: true };
+      }
+
+      case 'type_text': {
+        const element = refToElementMap.get(command.ref);
+        if (!element) {
+          return {
+            success: false,
+            error: `Element with ref ${command.ref} not found`,
+          };
+        }
+        element.focus();
+        element.value = command.text;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        return { success: true };
+      }
+
+      case 'scroll_to':
+        window.scrollTo(command.x, command.y);
+        return { success: true };
+
+      default:
+        return {
+          success: false,
+          error: `Unknown action type: ${command.type}`,
+        };
+    }
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
 
 // Listen for messages from background script
@@ -407,6 +465,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'scrollTo') {
     window.scrollTo(message.x, message.y);
     sendResponse({ success: true });
+  } else if (message.action === 'execute') {
+    const result = executeAction(message.command);
+    sendResponse(result);
   }
   return true;
 });
