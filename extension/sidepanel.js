@@ -348,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'screenshot-mode-toggle'
   );
   const screenshotModeLabel = document.getElementById('screenshot-mode-label');
+  const confirmModeToggle = document.getElementById('confirm-mode-toggle');
 
   // Modals
   const settingsModal = document.getElementById('settings-modal');
@@ -1158,6 +1159,160 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       );
     }
+  });
+
+  // Confirm Mode Logic
+  let confirmMode = false;
+
+  // Load confirm mode
+  chrome.storage.local.get(['confirmMode'], (result) => {
+    confirmMode = result.confirmMode || false;
+    if (confirmModeToggle) confirmModeToggle.checked = confirmMode;
+  });
+
+  if (confirmModeToggle) {
+    confirmModeToggle.addEventListener('change', (e) => {
+      confirmMode = e.target.checked;
+      chrome.storage.local.set({ confirmMode });
+      // Prevent closing menu
+      e.stopPropagation();
+    });
+
+    // Stop propagation for the toggle itself too
+    confirmModeToggle.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  // Action Preview & Execution
+  function formatAction(action) {
+    switch (action.type) {
+      case 'navigate_to':
+        return `Navigate to ${action.url}`;
+      case 'click_element':
+        return `Click element [${action.ref}]`;
+      case 'type_text':
+        return `Type "${action.text}" into element [${action.ref}]`;
+      case 'scroll_to':
+        return `Scroll to (${action.x}, ${action.y})`;
+      default:
+        return JSON.stringify(action);
+    }
+  }
+
+  function showActionPreview(action, onApprove, onCancel) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'bubble';
+    bubbleDiv.style.background = 'var(--bg-tertiary)';
+    bubbleDiv.style.border = '1px solid var(--accent)'; // Highlight it
+
+    bubbleDiv.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 8px;">⚠️ Konfirmasi Aksi</div>
+      <div style="margin-bottom: 12px; font-family: monospace; font-size: 0.9em;">
+        ${formatAction(action)}
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="primary-btn approve-btn" style="flex: 1;">Setuju</button>
+        <button class="secondary-btn cancel-btn" style="flex: 1;">Batal</button>
+      </div>
+    `;
+
+    messageDiv.appendChild(bubbleDiv);
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    const approveBtn = bubbleDiv.querySelector('.approve-btn');
+    const cancelBtn = bubbleDiv.querySelector('.cancel-btn');
+
+    approveBtn.onclick = () => {
+      messageDiv.remove();
+      onApprove();
+    };
+
+    cancelBtn.onclick = () => {
+      messageDiv.remove();
+      const cancelMsg = {
+        role: 'assistant',
+        text: '❌ Aksi dibatalkan oleh pengguna.',
+        timestamp: Date.now(),
+      };
+      renderMessage(cancelMsg);
+      onCancel();
+    };
+  }
+
+  async function performAction(action) {
+    // Show status: Executing...
+    const statusMsg = {
+      role: 'assistant',
+      text: `*Menjalankan aksi:* ${formatAction(action)}...`,
+      timestamp: Date.now(),
+    };
+    renderMessage(statusMsg);
+
+    try {
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (!tab) throw new Error('No active tab');
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'execute',
+        command: action,
+      });
+
+      // Update status
+      if (response && response.success) {
+        const successMsg = {
+          role: 'assistant',
+          text: `✅ **Berhasil:** ${formatAction(action)}`,
+          timestamp: Date.now(),
+        };
+        renderMessage(successMsg);
+        return { success: true };
+      } else {
+        throw new Error(response.error || 'Unknown error');
+      }
+    } catch (e) {
+      console.error('Action failed:', e);
+      const errorMsg = {
+        role: 'assistant',
+        text: `❌ **Gagal:** ${e.message}`,
+        timestamp: Date.now(),
+      };
+      renderMessage(errorMsg);
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Listener for actions from background/backend
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'propose_action') {
+      const action = message.data;
+
+      if (confirmMode) {
+        showActionPreview(
+          action,
+          async () => {
+            // Approve
+            const result = await performAction(action);
+            sendResponse(result);
+          },
+          () => {
+            // Cancel
+            sendResponse({ success: false, error: 'Cancelled by user' });
+          }
+        );
+        return true; // Keep channel open for async response
+      } else {
+        // Auto-execute
+        performAction(action).then((result) => sendResponse(result));
+        return true;
+      }
+    }
+    // Don't return true for other messages to allow other listeners to handle them
   });
 
   // Initialize on load
