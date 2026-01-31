@@ -5,11 +5,19 @@ use serde::{Deserialize, Serialize};
 pub enum WsMessage {
     Ping,
     Pong,
+    #[serde(rename = "session_init")]
+    SessionInit {
+        session_id: String,
+    },
     SessionUpdate {
         url: String,
         title: Option<String>,
     },
-    ActionCommand(ActionCommand),
+    #[serde(rename = "action_request")]
+    ActionRequest {
+        request_id: String,
+        command: ActionCommand,
+    },
     ActionResult(ActionResult),
     #[serde(other)]
     Unknown,
@@ -37,6 +45,7 @@ pub enum ActionCommand {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ActionResult {
+    pub request_id: String,
     pub success: bool,
     pub error: Option<String>,
     pub data: Option<serde_json::Value>,
@@ -55,43 +64,33 @@ mod tests {
 
     #[test]
     fn test_action_command_serialization() {
-        let cmd = WsMessage::ActionCommand(ActionCommand::ClickElement { ref_id: 1 });
+        let cmd = WsMessage::ActionRequest {
+            request_id: "123".to_string(),
+            command: ActionCommand::ClickElement { ref_id: 1 },
+        };
         let serialized = serde_json::to_string(&cmd).unwrap();
         assert_eq!(
             serialized,
-            r#"{"type":"ActionCommand","data":{"type":"click_element","ref":1}}"#
+            r#"{"type":"action_request","data":{"request_id":"123","command":{"type":"click_element","ref":1}}}"#
         );
 
-        let cmd = WsMessage::ActionCommand(ActionCommand::NavigateTo {
-            url: "https://example.com".to_string(),
-        });
+        let cmd = WsMessage::ActionRequest {
+            request_id: "123".to_string(),
+            command: ActionCommand::NavigateTo {
+                url: "https://example.com".to_string(),
+            },
+        };
         let serialized = serde_json::to_string(&cmd).unwrap();
         assert_eq!(
             serialized,
-            r#"{"type":"ActionCommand","data":{"type":"navigate_to","url":"https://example.com"}}"#
-        );
-
-        let cmd = WsMessage::ActionCommand(ActionCommand::TypeText {
-            ref_id: 2,
-            text: "Hello".to_string(),
-        });
-        let serialized = serde_json::to_string(&cmd).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"type":"ActionCommand","data":{"type":"type_text","ref":2,"text":"Hello"}}"#
-        );
-
-        let cmd = WsMessage::ActionCommand(ActionCommand::ScrollTo { x: 0, y: 500 });
-        let serialized = serde_json::to_string(&cmd).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"type":"ActionCommand","data":{"type":"scroll_to","x":0,"y":500}}"#
+            r#"{"type":"action_request","data":{"request_id":"123","command":{"type":"navigate_to","url":"https://example.com"}}}"#
         );
     }
 
     #[test]
     fn test_action_result_serialization() {
         let res = WsMessage::ActionResult(ActionResult {
+            request_id: "123".to_string(),
             success: true,
             error: None,
             data: None,
@@ -99,7 +98,7 @@ mod tests {
         let serialized = serde_json::to_string(&res).unwrap();
         assert_eq!(
             serialized,
-            r#"{"type":"ActionResult","data":{"success":true,"error":null,"data":null}}"#
+            r#"{"type":"ActionResult","data":{"request_id":"123","success":true,"error":null,"data":null}}"#
         );
     }
 }

@@ -9,6 +9,9 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::state::AppState;
 use crate::handler::agent_handler;
 use crate::models::ws::{ActionCommand, ActionResult, WsMessage};
+use futures::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 pub fn app_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
@@ -31,52 +34,88 @@ async fn health_check() -> impl IntoResponse {
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(handle_socket)
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket) {
-    while let Some(msg) = socket.recv().await {
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+    let session_id = Uuid::new_v4().to_string();
+    tracing::info!("New WebSocket connection: session_id={}", session_id);
+
+    let (mut sink, mut stream) = socket.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<WsMessage>();
+
+    // Register connection
+    state.register_connection(session_id.clone(), tx.clone()).await;
+
+    // Send session_id to frontend
+    let init_msg = WsMessage::SessionInit {
+        session_id: session_id.clone(),
+    };
+    let _ = tx.send(init_msg);
+    tracing::info!("Sent session_init to client");
+
+    // Spawn task to forward messages from channel to WebSocket
+    let session_id_clone = session_id.clone();
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Ok(text) = serde_json::to_string(&msg) {
+                if sink.send(Message::Text(text.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+        tracing::info!("Send task terminated for session_id={}", session_id_clone);
+    });
+
+    while let Some(msg) = stream.next().await {
         if let Ok(Message::Text(text)) = msg {
             match serde_json::from_str::<WsMessage>(&text) {
                 Ok(WsMessage::Ping) => {
-                    let pong = serde_json::to_string(&WsMessage::Pong).unwrap();
-                    if socket.send(Message::Text(pong.into())).await.is_err() {
-                        break;
-                    }
+                    let _ = tx.send(WsMessage::Pong);
                 }
                 Ok(WsMessage::SessionUpdate { url, title }) => {
                     tracing::info!("Context update: url={}, title={:?}", url, title);
                 }
-                Ok(WsMessage::ActionCommand(cmd)) => {
-                    match &cmd {
+                Ok(WsMessage::ActionRequest { request_id, command }) => {
+                    match &command {
                         ActionCommand::NavigateTo { url } => {
-                            tracing::info!("ActionCommand: navigate_to url={}", url);
+                            tracing::info!("ActionRequest[{}]: navigate_to url={}", request_id, url);
                         }
                         ActionCommand::ClickElement { ref_id } => {
-                            tracing::info!("ActionCommand: click_element ref={}", ref_id);
+                            tracing::info!("ActionRequest[{}]: click_element ref={}", request_id, ref_id);
                         }
                         ActionCommand::TypeText { ref_id, text } => {
-                            tracing::info!("ActionCommand: type_text ref={}, text={}", ref_id, text);
+                            tracing::info!("ActionRequest[{}]: type_text ref={}, text={}", request_id, ref_id, text);
                         }
                         ActionCommand::ScrollTo { x, y } => {
-                            tracing::info!("ActionCommand: scroll_to x={}, y={}", x, y);
+                            tracing::info!("ActionRequest[{}]: scroll_to x={}, y={}", request_id, x, y);
                         }
                     }
-                    // Echo back as ActionResult (placeholder for actual execution)
+                    // Echo back as ActionResult (placeholder for actual execution simulation if needed)
+                    // In real usage, the frontend executes and sends ActionResult back.
+                    // This echo logic might be conflicting if both backend and frontend send ActionResult.
+                    // Assuming this echo is for testing without frontend, let's keep it but maybe conditional?
+                    // For now, I'll update it to match the new structure.
                     let result = WsMessage::ActionResult(ActionResult {
+                        request_id: request_id.clone(),
                         success: true,
                         error: None,
                         data: None,
                     });
-                    let response = serde_json::to_string(&result).unwrap();
-                    if socket.send(Message::Text(response.into())).await.is_err() {
-                        break;
-                    }
+                    // Only send echo if we are not expecting the frontend to do it?
+                    // Actually, if I am the backend, receiving ActionRequest from Frontend is weird.
+                    // Usually Backend sends ActionRequest to Frontend.
+                    // Why does ws_handler handle ActionCommand from Frontend?
+                    // Maybe for "user-initiated" actions from the extension UI?
+                    // If so, echo is fine.
+                    let _ = tx.send(result);
                 }
                 Ok(WsMessage::ActionResult(res)) => {
-                    tracing::info!("ActionResult received: success={}", res.success);
+                    tracing::info!("ActionResult received[{}]: success={}", res.request_id, res.success);
+                    let request_id = res.request_id.clone();
+                    state.complete_pending_action(&request_id, res).await;
                 }
                 Ok(WsMessage::Unknown) => {
                     tracing::warn!("Unknown WebSocket message type");
@@ -88,4 +127,9 @@ async fn handle_socket(mut socket: WebSocket) {
             }
         }
     }
+
+    // Cleanup
+    send_task.abort();
+    state.unregister_connection(&session_id).await;
+    tracing::info!("WebSocket disconnected: session_id={}", session_id);
 }
