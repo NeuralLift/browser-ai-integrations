@@ -195,6 +195,11 @@ const INTERACTIVE_SELECTORS = [
   '[role="checkbox"]',
   '[role="menuitem"]',
   '[role="tab"]',
+  '[role="option"]',
+  '[role="switch"]',
+  '[role="gridcell"]',
+  '[role="treeitem"]',
+  '[role="listitem"]',
   '[tabindex]:not([tabindex="-1"])',
 ];
 
@@ -233,6 +238,11 @@ function isInteractive(el) {
     return true;
   }
 
+  // Check for explicit onclick handler
+  if (el.hasAttribute('onclick')) {
+    return true;
+  }
+
   // Also check for cursor: pointer as a fallback (careful with body/html)
   const style = window.getComputedStyle(el);
   if (
@@ -257,7 +267,12 @@ function getAccessibleName(el) {
   // Try aria-labelledby
   const labelledBy = el.getAttribute('aria-labelledby');
   if (labelledBy) {
-    const labelEl = document.getElementById(labelledBy);
+    const root = el.getRootNode();
+    const labelEl =
+      root && typeof root.getElementById === 'function'
+        ? root.getElementById(labelledBy)
+        : document.getElementById(labelledBy);
+
     if (labelEl) return labelEl.innerText.trim();
   }
 
@@ -360,6 +375,13 @@ function generateSnapshot() {
     for (const child of element.children) {
       traverse(child);
     }
+
+    // Traverse Shadow DOM if present (open mode only)
+    if (element.shadowRoot) {
+      for (const child of element.shadowRoot.children) {
+        traverse(child);
+      }
+    }
   }
 
   traverse(document.body);
@@ -417,6 +439,66 @@ function highlightElement(ref) {
   }, 2000);
 
   return true;
+}
+
+// --- Debug Mode Badges ---
+
+let debugBadgeContainer = null;
+
+function showDebugBadges() {
+  // Remove existing badges first
+  hideDebugBadges();
+
+  // Generate fresh snapshot to populate refToElementMap
+  generateSnapshot();
+
+  // Create container
+  debugBadgeContainer = document.createElement('div');
+  debugBadgeContainer.setAttribute('data-browser-agent-ui', 'true');
+  debugBadgeContainer.style.cssText =
+    'position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 9999999; pointer-events: none;';
+  document.body.appendChild(debugBadgeContainer);
+
+  // Create badge for each element
+  refToElementMap.forEach((element, id) => {
+    // Check if element is still connected to DOM
+    if (!element.isConnected) return;
+
+    const rect = element.getBoundingClientRect();
+
+    // Skip if element is not visible or has zero size (double check)
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const badge = document.createElement('div');
+    badge.textContent = id;
+    badge.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      background: #dc2626;
+      color: white;
+      font-size: 10px;
+      font-weight: bold;
+      padding: 2px 4px;
+      border-radius: 2px;
+      pointer-events: none;
+      font-family: monospace;
+      line-height: 1;
+      z-index: 9999999;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    `;
+    debugBadgeContainer.appendChild(badge);
+  });
+
+  console.log('[Content] Debug badges shown:', refToElementMap.size);
+}
+
+function hideDebugBadges() {
+  if (debugBadgeContainer && debugBadgeContainer.parentNode) {
+    debugBadgeContainer.parentNode.removeChild(debugBadgeContainer);
+  }
+  debugBadgeContainer = null;
+  console.log('[Content] Debug badges hidden');
 }
 
 /**
@@ -526,6 +608,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'execute') {
     const result = executeAction(message.command);
     sendResponse(result);
+  } else if (message.action === 'toggleDebug') {
+    if (message.value) {
+      showDebugBadges();
+    } else {
+      hideDebugBadges();
+    }
+    sendResponse({ success: true });
   }
   return true;
 });

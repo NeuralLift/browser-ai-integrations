@@ -8,6 +8,7 @@ let contextInterval = null;
 let isConnected = false;
 let lastTabId = null;
 let lastUrl = null;
+let wsSessionId = null;
 
 // Setup side panel behavior
 chrome.sidePanel
@@ -32,6 +33,7 @@ function connectWebSocket() {
     ws.onclose = () => {
       console.log('[Background] WebSocket disconnected');
       isConnected = false;
+      wsSessionId = null;
       stopContextUpdates();
       // Attempt reconnection after 5 seconds
       setTimeout(connectWebSocket, 5000);
@@ -46,16 +48,33 @@ function connectWebSocket() {
       try {
         const message = JSON.parse(event.data);
 
-        if (message.type === 'ActionCommand') {
-          console.log('[Background] ActionCommand received:', message.data);
-          const result = await dispatchToActiveTab(message.data);
+        if (message.type === 'session_init') {
+          wsSessionId = message.data.session_id;
+          console.log('[Background] Session initialized:', wsSessionId);
+        } else if (message.type === 'action_request') {
+          const { request_id, command } = message.data;
+          console.log(
+            '[Background] ActionRequest received:',
+            request_id,
+            command
+          );
+          const result = await dispatchToActiveTab(command);
           // Send ActionResult back to backend
           const response = JSON.stringify({
             type: 'ActionResult',
-            data: result,
+            data: {
+              request_id: request_id,
+              success: result.success,
+              error: result.error || null,
+              data: result.data || null,
+            },
           });
           ws.send(response);
-          console.log('[Background] ActionResult sent:', result);
+          console.log(
+            '[Background] ActionResult sent:',
+            request_id,
+            result.success
+          );
         }
       } catch (e) {
         console.error('[Background] Error processing message:', e);
@@ -329,6 +348,8 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'getConnectionStatus') {
     sendResponse({ connected: isConnected });
+  } else if (message.action === 'getWsSessionId') {
+    sendResponse({ sessionId: wsSessionId });
   } else if (message.action === 'forceContextUpdate') {
     const fullPage = message.fullPage || false;
     captureAndSendContext({ forceUpdate: true, fullPage }).then(() => {

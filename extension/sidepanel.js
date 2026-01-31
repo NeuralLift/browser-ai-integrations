@@ -349,6 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
   );
   const screenshotModeLabel = document.getElementById('screenshot-mode-label');
   const confirmModeToggle = document.getElementById('confirm-mode-toggle');
+  const debugModeToggle = document.getElementById('debug-mode-toggle');
 
   // Modals
   const settingsModal = document.getElementById('settings-modal');
@@ -386,6 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isProcessing = false;
   let currentSession = null;
   let currentImage = null; // Base64 string
+  let wsSessionId = null;
 
   // Theme management
   function getTheme() {
@@ -408,6 +410,21 @@ document.addEventListener('DOMContentLoaded', () => {
   function toggleTheme() {
     const current = getTheme();
     setTheme(current === 'dark' ? 'light' : 'dark');
+  }
+
+  // Fetch WebSocket session ID from background script
+  async function fetchWsSessionId() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'getWsSessionId',
+      });
+      if (response && response.sessionId) {
+        wsSessionId = response.sessionId;
+        console.log('[Sidepanel] Got session ID:', wsSessionId);
+      }
+    } catch (e) {
+      console.error('[Sidepanel] Failed to get session ID:', e);
+    }
   }
 
   // Initialize theme
@@ -696,20 +713,44 @@ document.addEventListener('DOMContentLoaded', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: text,
-          stream: true,
+          query: text,
+          stream: !wsSessionId, // Don't request stream when using tools
           custom_instruction: instruction || undefined,
           image: imageToSend || undefined,
+          session_id: wsSessionId || undefined,
         }),
       });
 
       if (!response.ok) {
         hideTyping();
-        throw new Error('Failed to get response');
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to get response');
       }
 
-      // Handle SSE Stream
-      if (window.readSSEStream) {
+      // Check Content-Type to determine response format
+      const contentType = response.headers.get('Content-Type') || '';
+      const isJsonResponse = contentType.includes('application/json');
+
+      // Handle JSON response (tool-enabled mode)
+      if (isJsonResponse) {
+        hideTyping();
+        const data = await response.json();
+
+        const assistantMsg = {
+          role: 'assistant',
+          text: data.response || 'Tidak ada respons',
+          timestamp: Date.now(),
+          tokens: {
+            prompt: data.prompt_tokens,
+            response: data.response_tokens,
+            total: data.total_tokens,
+          },
+        };
+
+        renderMessage(assistantMsg);
+        SessionManager.addMessageToSession(currentSession.id, assistantMsg);
+        updateStatus(true);
+      } else if (window.readSSEStream) {
         let fullText = '';
         let bubbleDiv = null;
         let renderTimeout = null;
@@ -783,9 +824,20 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       hideTyping();
       console.error('Error sending message:', error);
+
+      // Determine if this is a network error or an API error
+      const isNetworkError =
+        error.message === 'Failed to fetch' ||
+        error.name === 'TypeError' ||
+        error.message.includes('NetworkError');
+
+      const errorText = isNetworkError
+        ? '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`'
+        : `**Error:** ${error.message}`;
+
       const errorMsg = {
         role: 'assistant',
-        text: '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`',
+        text: errorText,
         timestamp: Date.now(),
       };
       renderMessage(errorMsg);
@@ -818,6 +870,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Check backend health
     await checkConnectionStatus();
+
+    await fetchWsSessionId();
 
     initSession();
     await refreshTabInfo();
@@ -1180,6 +1234,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Stop propagation for the toggle itself too
     confirmModeToggle.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  // Debug Mode Logic
+  let debugMode = false;
+
+  // Load debug mode state
+  chrome.storage.local.get(['debugMode'], (result) => {
+    debugMode = result.debugMode || false;
+    if (debugModeToggle) debugModeToggle.checked = debugMode;
+  });
+
+  if (debugModeToggle) {
+    debugModeToggle.addEventListener('change', async (e) => {
+      debugMode = e.target.checked;
+      chrome.storage.local.set({ debugMode });
+
+      // Send message to content script
+      try {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleDebug',
+            value: debugMode,
+          });
+        }
+      } catch (err) {
+        console.error('[Sidepanel] Failed to toggle debug mode:', err);
+      }
+
+      e.stopPropagation();
+    });
+
+    debugModeToggle.addEventListener('click', (e) => e.stopPropagation());
   }
 
   // Action Preview & Execution
