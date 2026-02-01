@@ -1,24 +1,31 @@
+use async_stream::stream;
 use axum::{
     extract::{Json, State},
-    response::{sse::{Event, Sse}, IntoResponse},
     http::StatusCode,
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
 };
-use async_stream::stream;
 use futures::StreamExt;
-use std::sync::Arc;
-use rig::tool::Tool;
-use rig::completion::{ToolDefinition, PromptError, Prompt}; // Changed Chat to Prompt
-use rig::providers::gemini;
+use rig::OneOrMany;
 use rig::client::{CompletionClient, ProviderClient}; // Added both
+use rig::completion::{Prompt, ToolDefinition};
+use rig::message::{ImageMediaType, Message, UserContent};
+use rig::providers::gemini;
+use rig::tool::Tool;
+use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use uuid::Uuid;
 
 use crate::dtos::{AgentRequest, InteractiveElementDto};
-use crate::state::AppState;
 use crate::models::ChatResponse;
 use crate::models::ws::{ActionCommand, WsMessage};
-use crate::tools::browser::{NavigateTool, ClickTool, TypeTool, ScrollTool, NavigateArgs, ClickArgs, TypeArgs, ScrollArgs};
+use crate::state::AppState;
+use crate::tools::browser::{
+    ClickArgs, ClickTool, NavigateArgs, NavigateTool, ScrollArgs, ScrollTool, TypeArgs, TypeTool,
+};
 
 // --- Error Type ---
 #[derive(Debug)]
@@ -87,9 +94,15 @@ impl Tool for WsClickTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(&self.state, &self.session_id, ActionCommand::ClickElement { ref_id: args.ref_id })
-            .await
-            .map_err(ToolError)
+        execute_tool(
+            &self.state,
+            &self.session_id,
+            ActionCommand::ClickElement {
+                ref_id: args.ref_id,
+            },
+        )
+        .await
+        .map_err(ToolError)
     }
 }
 
@@ -109,9 +122,16 @@ impl Tool for WsTypeTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(&self.state, &self.session_id, ActionCommand::TypeText { ref_id: args.ref_id, text: args.text })
-            .await
-            .map_err(ToolError)
+        execute_tool(
+            &self.state,
+            &self.session_id,
+            ActionCommand::TypeText {
+                ref_id: args.ref_id,
+                text: args.text,
+            },
+        )
+        .await
+        .map_err(ToolError)
     }
 }
 
@@ -131,35 +151,57 @@ impl Tool for WsScrollTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(&self.state, &self.session_id, ActionCommand::ScrollTo { x: args.x, y: args.y })
-            .await
-            .map_err(ToolError)
+        execute_tool(
+            &self.state,
+            &self.session_id,
+            ActionCommand::ScrollTo {
+                x: args.x,
+                y: args.y,
+            },
+        )
+        .await
+        .map_err(ToolError)
     }
 }
 
-async fn execute_tool(state: &Arc<AppState>, session_id: &str, command: ActionCommand) -> Result<String, String> {
+async fn execute_tool(
+    state: &Arc<AppState>,
+    session_id: &str,
+    command: ActionCommand,
+) -> Result<String, String> {
     // 1. Get connection
-    let tx = state.get_connection(session_id).await.ok_or("No active WebSocket connection for this session")?;
-    
+    let tx = state
+        .get_connection(session_id)
+        .await
+        .ok_or("No active WebSocket connection for this session")?;
+
     // 2. Register pending action
     let request_id = Uuid::new_v4().to_string();
     let (tx_result, rx_result) = oneshot::channel();
-    state.register_pending_action(request_id.clone(), tx_result).await;
-    
+    state
+        .register_pending_action(request_id.clone(), tx_result)
+        .await;
+
     // 3. Send command
     let msg = WsMessage::ActionRequest {
         request_id: request_id.clone(),
         command,
     };
-    
-    tx.send(msg).map_err(|e| format!("Failed to send WebSocket message: {}", e))?;
-    tracing::info!("Sent ActionRequest[{}] to session {}", request_id, session_id);
+
+    tx.send(msg)
+        .map_err(|e| format!("Failed to send WebSocket message: {}", e))?;
+    tracing::info!(
+        "Sent ActionRequest[{}] to session {}",
+        request_id,
+        session_id
+    );
 
     // 4. Wait for result
-    let result = timeout(Duration::from_secs(30), rx_result).await
+    let result = timeout(Duration::from_secs(30), rx_result)
+        .await
         .map_err(|_| "Tool execution timed out after 30 seconds")?
         .map_err(|_| "Response channel closed unexpectedly")?;
-        
+
     // 5. Return result
     if result.success {
         Ok(format!("Success. Data: {:?}", result.data))
@@ -182,46 +224,142 @@ pub async fn run_agent(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    tracing::info!("Agent request: {} (session_id: {:?})", request.query, request.session_id);
-    
+    tracing::info!(
+        "Agent request: {} (session_id: {:?})",
+        request.query,
+        request.session_id
+    );
+
     // If session_id is provided, use the tool-enabled agent
     if let Some(session_id) = &request.session_id {
         tracing::info!("Using tool-enabled agent with session_id: {}", session_id);
         // Note: For now, we only support non-streaming tool use because Rig's streaming with tools is complex
         // and needs careful event handling.
-        
+
         let client = gemini::Client::from_env(); // Create fresh client to build agent
-        
-        let mut preamble = "You are a browser assistant. You can control the browser using tools. Always use tools to answer if possible.".to_string();
+
+        let mut preamble = r#"You are a browser automation assistant. You can control the browser using the following tools AND analyze images/screenshots.
+
+## Available Tools
+- `navigate_to(url)`: Navigate to a URL (e.g., "https://google.com")
+- `click_element(ref)`: Click an element using its Ref ID number
+- `type_text(ref, text)`: Type text into an input field using its Ref ID
+- `scroll_to(x, y)`: Scroll the page to coordinates
+
+## Capabilities
+1. **Browser Automation**: Control the browser using the tools above
+2. **Image Analysis**: If the user sends an image/screenshot, analyze and describe what you see
+
+## Instructions
+1. When the user asks to fill/type/enter something, use `type_text` with the appropriate Ref ID and text
+2. When the user asks to click something, use `click_element` with the Ref ID
+3. When the user asks to go to a website, use `navigate_to`
+4. When the user asks about an image, describe what you see in the image
+5. Always respond with a brief confirmation of what you did
+6. If no elements are available or you can't find a matching element, explain what you need
+
+## Example Actions
+- User: "isi dengan 12345" → Find the input field's Ref ID and use type_text(ref, "12345")
+- User: "klik tombol submit" → Find the submit button's Ref ID and use click_element(ref)
+- User: "buka google" → Use navigate_to("https://google.com")
+- User: "ini foto siapa?" + [image] → Analyze and describe who/what is in the image
+"#.to_string();
 
         if let Some(elements) = &request.interactive_elements {
             if !elements.is_empty() {
                 let formatted_elements = format_interactive_elements(elements);
-                preamble.push_str("\n\n## Available Interactive Elements\n");
+                preamble.push_str("\n## Available Interactive Elements on Current Page\n");
                 preamble.push_str(&formatted_elements);
-                preamble.push_str("\n\nWhen asked to click by name, find the matching element above and use its Ref ID.");
+                preamble.push_str(
+                    "\n\nMatch user requests to elements above by name/role and use their Ref ID.",
+                );
+            } else {
+                preamble.push_str("\n## Note\nNo interactive elements detected on the current page. You may need to navigate to a page first or ask the user for more context.");
             }
+        } else {
+            preamble.push_str("\n## Note\nNo page context provided. Ask the user to refresh the page or provide more details.");
         }
 
-        let agent = client.agent(gemini::completion::GEMINI_2_5_FLASH)
+        let agent = client
+            .agent(gemini::completion::GEMINI_2_5_FLASH)
             .preamble(&preamble)
-            .tool(WsNavigateTool { state: state.clone(), session_id: session_id.clone() })
-            .tool(WsClickTool { state: state.clone(), session_id: session_id.clone() })
-            .tool(WsTypeTool { state: state.clone(), session_id: session_id.clone() })
-            .tool(WsScrollTool { state: state.clone(), session_id: session_id.clone() })
+            .tool(WsNavigateTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
+            .tool(WsClickTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
+            .tool(WsTypeTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
+            .tool(WsScrollTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
             .build();
-            
-        let response: String = agent.prompt(&request.query)
-            .await
-            .map_err(|e: PromptError| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            
+
+        // Build the prompt - either text-only or text+image
+        let response: String = if let Some(image_data) = &request.image {
+            // Strip data URL prefix if present (e.g., "data:image/jpeg;base64,")
+            let base64_data = if let Some(pos) = image_data.find(",") {
+                &image_data[pos + 1..]
+            } else {
+                image_data.as_str()
+            };
+
+            // Build multimodal message with text + image
+            let mut content_parts = vec![UserContent::text(&request.query)];
+            content_parts.push(UserContent::image_base64(
+                base64_data,
+                Some(ImageMediaType::JPEG),
+                None,
+            ));
+
+            let user_message = Message::User {
+                content: OneOrMany::many(content_parts).unwrap(),
+            };
+
+            tracing::info!("Sending multimodal prompt (text + image) to agent");
+            match agent.prompt(user_message).await {
+                Ok(text) => text,
+                Err(e) => {
+                    let error_str = e.to_string();
+                    tracing::warn!("Agent multimodal prompt error: {}", error_str);
+                    if error_str.contains("empty") || error_str.contains("no message") {
+                        "Maaf, saya tidak bisa menganalisis gambar ini dalam mode browser automation. Coba matikan fitur Browser Agent untuk analisis gambar.".to_string()
+                    } else {
+                        return Err((StatusCode::INTERNAL_SERVER_ERROR, error_str));
+                    }
+                }
+            }
+        } else {
+            // Text-only prompt
+            match agent.prompt(&request.query).await {
+                Ok(text) => text,
+                Err(e) => {
+                    let error_str = e.to_string();
+                    tracing::warn!("Agent prompt error: {}", error_str);
+
+                    // Handle empty response error gracefully
+                    if error_str.contains("empty") || error_str.contains("no message") {
+                        "Maaf, saya tidak yakin tindakan apa yang harus dilakukan. Bisa tolong jelaskan lebih spesifik? Contoh:\n- \"isi field email dengan test@example.com\"\n- \"klik tombol Submit\"\n- \"buka halaman google.com\"".to_string()
+                    } else {
+                        return Err((StatusCode::INTERNAL_SERVER_ERROR, error_str));
+                    }
+                }
+            }
+        };
+
         Ok(Json(ChatResponse {
             response,
             prompt_tokens: None,
             response_tokens: None,
             total_tokens: None,
-        }).into_response())
-        
+        })
+        .into_response())
     } else {
         // Legacy path (no tools, just chat)
         if request.stream {
@@ -231,7 +369,7 @@ pub async fn run_agent(
                 request.custom_instruction.as_deref(),
                 request.image.as_deref(),
             );
-            
+
             let stream = stream! {
                 let mut llm_stream = llm_stream;
                 while let Some(chunk) = llm_stream.next().await {
@@ -242,15 +380,17 @@ pub async fn run_agent(
                 }
                 yield Ok::<_, String>(Event::default().data("[DONE]"));
             };
-            
+
             Ok(Sse::new(stream).into_response())
         } else {
             // Return JSON
-            let response = state.llm.complete(
-                &request.query,
-                request.custom_instruction.as_deref(),
-                request.image.as_deref(),
-            )
+            let response = state
+                .llm
+                .complete(
+                    &request.query,
+                    request.custom_instruction.as_deref(),
+                    request.image.as_deref(),
+                )
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -259,7 +399,8 @@ pub async fn run_agent(
                 prompt_tokens: None,
                 response_tokens: None,
                 total_tokens: None,
-            }).into_response())
+            })
+            .into_response())
         }
     }
 }

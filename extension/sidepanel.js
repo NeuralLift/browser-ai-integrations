@@ -474,7 +474,13 @@ document.addEventListener('DOMContentLoaded', () => {
         bubbleDiv.appendChild(img);
       }
       const textSpan = document.createElement('div');
-      textSpan.textContent = message.text;
+      // Escape HTML then convert newlines to <br> for proper line break rendering
+      const escapedText = message.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      textSpan.innerHTML = escapedText;
       bubbleDiv.appendChild(textSpan);
     } else {
       bubbleDiv.innerHTML = parseMarkdown(message.text);
@@ -860,9 +866,24 @@ document.addEventListener('DOMContentLoaded', () => {
         error.name === 'TypeError' ||
         error.message.includes('NetworkError');
 
-      const errorText = isNetworkError
-        ? '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`'
-        : `**Error:** ${error.message}`;
+      // Check for known error patterns and provide user-friendly messages
+      let errorText;
+      if (isNetworkError) {
+        errorText =
+          '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`';
+      } else if (
+        error.message.includes('empty') ||
+        error.message.includes('no message')
+      ) {
+        errorText =
+          'Maaf, saya tidak yakin tindakan apa yang harus dilakukan. Bisa tolong jelaskan lebih spesifik? Contoh:\n- "isi field email dengan test@example.com"\n- "klik tombol Submit"\n- "buka halaman google.com"';
+      } else if (error.message.includes('CompletionError')) {
+        // Strip internal error details for cleaner display
+        errorText =
+          '**Error:** Terjadi kesalahan saat memproses permintaan. Coba lagi atau berikan perintah yang lebih spesifik.';
+      } else {
+        errorText = `**Error:** ${error.message}`;
+      }
 
       const errorMsg = {
         role: 'assistant',

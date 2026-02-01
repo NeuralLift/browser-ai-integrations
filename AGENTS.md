@@ -4,9 +4,9 @@
 
 This project is a browser integration system connecting a Chrome Extension frontend with a local Rust backend.
 
-- **Backend**: Rust (Axum, Tokio)
+- **Backend**: Rust (Axum, Tokio, Rig-core)
 - **Frontend**: Chrome Extension (Vanilla JS, HTML, CSS)
-- **AI Engine**: Google Gemini API via Backend
+- **AI Engine**: Google Gemini API via Rig-core in Backend
 
 ## 2. Backend (Rust)
 
@@ -21,94 +21,126 @@ This project is a browser integration system connecting a Chrome Extension front
 ### Testing & Linting
 
 - **Run All Tests**: `cargo test`
-- **Run Single Test**: `cargo test test_name -- --nocapture`
+- **Run Single Test**: `cargo test <test_name> -- --nocapture`
 - **Lint**: `cargo clippy` (Ensure no warnings before committing)
-- **Format**: `cargo fmt` (Standard Rust formatting)
+- **Format (Root)**: `npm run format:rust` (Formats backend from project root)
+- **Format (Local)**: `cargo fmt` (Standard Rust formatting)
 
 ### Code Style & Conventions
 
 - **Edition**: Rust 2024
 - **Async Runtime**: Tokio
 - **Web Framework**: Axum
+- **AI Integration**: `rig-core` for building LLM-powered applications and agents.
 - **Error Handling**:
-  - Avoid `unwrap()` or `expect()` in production paths. Use `match` or `?` operator.
-  - Use `tracing::info!`, `tracing::warn!`, `tracing::error!` for logging. Do not use `println!`.
-- **State Management**: Use `Arc<RwLock<AppState>>` for shared state across threads.
-- **Imports**: Group imports by crate, then std.
+  - Use `Result` and the `?` operator. Avoid `unwrap()` or `expect()` in production paths.
+  - Use `thiserror` for defining custom error types that map to HTTP responses.
+- **Logging**: Use `tracing` macros (`info!`, `warn!`, `error!`). Do not use `println!`.
+- **State Management**: Use `Arc<RwLock<AppState>>` or `Arc<AppState>` for shared state.
+- **Imports**: Grouped by (1) standard library, (2) external crates, (3) local modules.
+
   ```rust
-  use axum::{...};
   use std::sync::Arc;
+
+  use axum::{extract::State, Json};
+  use rig::completion::Prompt;
+
+  use crate::error::AppError;
   ```
+
 - **Serialization**: Use `serde` with `#[derive(Serialize, Deserialize)]`.
+- **Typing**: Use strong typing; avoid `serde_json::Value` where a struct can be defined.
 
-### Key Files
+### Module Structure
 
-- `src/main.rs`: Entry point, server configuration, route definitions.
-- `src/ai.rs`: Google Gemini API integration logic.
-- `src/ws.rs`: WebSocket handlers for real-time communication.
-- `src/privacy.rs`: Data sanitization logic.
+- `agent`: Core agent logic, behavioral definitions, and prompt templates. Uses Rig-core client.
+- `config`: Environment variable loading (`dotenvy`) and configuration structs for the application.
+- `dtos`: Data Transfer Objects for standardized API communication between frontend and backend.
+- `error`: Centralized error types and Axum `IntoResponse` implementations for consistent errors.
+- `handler`: Request handlers for HTTP routes and WebSocket connections. Implements app logic.
+- `llm`: Logic for interfacing with LLM providers (Google Gemini) and Rig client initialization.
+- `models`: Core data structures and internal logic models used throughout the backend.
+- `routes`: API route definitions, path mapping, and middleware layer configuration (CORS, tracing).
+- `state`: Global application state accessible via Axum extractors, shared across all handlers.
+- `tools`: Implementations of tools/functions (e.g., search, web navigation) that agents can call.
+- `utils`: Shared utilities, helpers for data manipulation, and streaming response logic.
 
 ## 3. Frontend (Browser Extension)
 
-### Structure
+### Entry Points
 
-- **Directory**: `extension/`
-- **Manifest**: `manifest.json` (Manifest V3)
-- **Entry Points**:
-  - `sidepanel.html` & `sidepanel.js`: Main Chat UI.
-  - `background.js`: Service worker.
-  - `content.js`: Page content extractor.
+- `sidepanel.js`: Main logic for the Chat UI in the browser's side panel.
+- `background.js`: Extension service worker managing lifecycle and events.
+- `content.js`: Script injected into pages to extract content and take screenshots.
+- `popup.js`: UI logic for the extension's popup menu.
+- `offscreen.js`: Handles DOM parsing and heavy tasks in a separate document.
 
-### Development Workflow
+### Testing & Linting
 
-1. Load unpacked extension in `chrome://extensions`.
-2. To reflect changes:
-   - **UI Changes** (HTML/CSS): Close and reopen the side panel.
-   - **Script Changes** (JS): Click the "Refresh" icon in `chrome://extensions`.
-   - **Manifest Changes**: Remove and re-add the extension.
+- **Directory**: Project Root
+- **Run All Tests**: `npm test` (Runs Jest tests in `tests/extension/`)
+- **Run Single Test**: `npm test -- -t "test name"`
+- **Format Check**: `npm run format:check` (Prettier check)
+- **Format Fix**: `npm run format` (Prettier write)
 
 ### Code Style (JavaScript)
 
-- **Format**: Vanilla JavaScript (ES6+).
-- **Naming**: `camelCase` for variables and functions.
-- **Async**: Use `async/await` over raw Promises.
-- **DOM**: Use `document.getElementById` and `querySelector`.
-- **No Build Step**: The extension runs raw code. Do not introduce TypeScript or bundlers unless explicitly requested.
+- **Standard**: Vanilla JavaScript (ES6+), no build step or bundlers.
+- **Naming**: `camelCase` for variables and functions, `PascalCase` for classes.
+- **Async**: Use `async/await` over raw Promises for clarity.
+- **Error Handling**: Use `try/catch` blocks for all async operations and API calls.
+- **DOM**: Use `document.querySelector` and `document.getElementById`.
+- **APIs**: Prefer `chrome.storage.local` for state over `localStorage`.
 
 ### Code Style (CSS)
 
-- **Theme**: Support both Light and Dark modes using CSS variables (`:root` vs `[data-theme="dark"]`).
-- **Layout**: Use Flexbox for layout.
-- **Scrollbars**: Custom styling required for cross-theme consistency.
+- **Theming**: Support Light/Dark modes using CSS variables (`:root` vs `[data-theme="dark"]`).
+- **Layout**: Use Flexbox or CSS Grid for all layout tasks.
+- **Scrollbars**: Custom styling required for consistent cross-theme appearance.
 
-## 4. General Guidelines for Agents
+## 4. Agent Rules & Guidelines
 
-### 1. Proactiveness
+- **No Hallucinations**: Never invent API endpoints or library functions. Verify with search.
+- **Test Integrity**: Never delete or bypass tests. Fix the code to make tests pass.
+- **LSP Usage**: Use `lsp_diagnostics` to verify code quality before finishing a task.
+- **Documentation**: Update `AGENTS.md` when introducing new patterns or modules.
+- **Atomic Commits**: Use Conventional Commits (`feat:`, `fix:`, `chore:`) for atomic changes.
+- **Pre-Commit**: Always run `npm run format` and `npm run format:rust` before committing.
+- **Context Awareness**: Be aware of Chrome Extension script scopes (Sidepanel vs Content).
+- **Directory Verification**: Verify parent directories exist using `ls` before creating new files.
+- **Command Quoting**: Quote file paths with spaces (e.g., `rm "path with spaces/file.txt"`).
 
-- When fixing bugs, always verify if the fix requires changes in both Backend and Frontend.
-- If a new feature requires a dependency, add it to `Cargo.toml` (Backend) or include the library file (Frontend).
+## 5. General Guidelines
 
-### 2. Privacy & Security
+### Proactiveness
 
-- **API Keys**: Never hardcode API keys. Use `.env` file loaded by `dotenvy` in Rust.
-- **Sanitization**: All text sent to AI must be sanitized in `privacy.rs` (remove sensitive PII if possible).
+- Always verify if a fix requires changes in both Backend and Frontend.
+- If a new feature requires a dependency, add it to `Cargo.toml` or `extension/lib/`.
 
-### 3. Git Operations
+### Privacy & Security
 
-- **Commit Messages**: Use Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`).
-- **Files to Ignore**: Ensure `target/`, `node_modules/`, `.env`, and `*.zip` are in `.gitignore`.
+- **Secrets**: Never hardcode API keys. Use `.env` file loaded by `dotenvy`.
+- **Sanitization**: All text sent to AI must be sanitized in `privacy.rs` (remove PII).
 
-### 4. release Management
+### Release Management
 
-- When asked to zip the project:
-  1. Create a distribution folder.
-  2. Copy `extension/` folder.
-  3. Copy `backend/target/release/backend.exe`.
-  4. Include `README_CEPAT.txt` and `run_backend.bat`.
-  5. Zip with version prefix (e.g., `v1.2.0_package.zip`).
+- For distribution: Copy `extension/`, `backend.exe` (release), `README_CEPAT.txt`, `run_backend.bat`.
+- Package as a ZIP with version prefix (e.g., `v1.2.0_package.zip`).
 
-## 5. Troubleshooting Common Issues
+## 6. Troubleshooting
 
-- **"Image state not clearing"**: Ensure logic handles both text-only and image-only messages.
-- **"Connection failed"**: Verify backend is running on port 3000 and `GOOGLE_API_KEY` is set in `.env`.
-- **"CORS Errors"**: The backend is configured to allow `Any` origin for local development flexibility.
+- **"Image state not clearing"**: Ensure logic handles both text and image message states.
+- **"Connection failed"**: Verify backend is on port 3000 and `GOOGLE_API_KEY` is set.
+- **"Extension not updating"**: Click the "Refresh" icon in `chrome://extensions`.
+- **"CORS Errors"**: Check Axum `tower_http::cors` configuration in `routes.rs`.
+- **"LSP Failures"**: If LSP fails, ensure the correct workspace root is opened.
+- **"Rig Client Error"**: Ensure the `GOOGLE_API_KEY` is valid and has sufficient quota.
+- **"404 Not Found"**: Verify that the route is defined in `routes.rs` and matches the path.
+
+## 7. AI Integration Best Practices
+
+- **Contextual Prompts**: Always include page context (URL, Title, Body) in system prompts.
+- **Token Management**: Be mindful of large screenshots; downscale if possible before sending.
+- **Streaming**: Use Server-Sent Events (SSE) or WebSockets for real-time AI responses.
+- **Tool Selection**: Only provide tools relevant to the current agent's behavior.
+- **Fallback Logic**: Implement fallbacks for API timeouts or rate limits.

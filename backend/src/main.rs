@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-
 mod agent;
 mod config;
 mod dtos;
@@ -20,8 +19,6 @@ use crate::models::HealthResponse;
 use rig::message::ImageMediaType;
 
 use crate::state::AppState;
-
-
 
 #[tokio::main]
 async fn main() {
@@ -48,9 +45,9 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
     use crate::llm::parse_image_data;
     use crate::models::{ChatRequest, ChatResponse};
+    use serde_json;
 
     #[test]
     fn test_health_response_serialize() {

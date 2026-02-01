@@ -444,10 +444,15 @@ function highlightElement(ref) {
 // --- Debug Mode Badges ---
 
 let debugBadgeContainer = null;
+let isDebugModeActive = false;
+let debugRefreshTimeout = null;
+let debugMutationObserver = null;
 
 function showDebugBadges() {
   // Remove existing badges first
-  hideDebugBadges();
+  hideDebugBadges(true); // true = keep debug mode active
+
+  isDebugModeActive = true;
 
   // Generate fresh snapshot to populate refToElementMap
   generateSnapshot();
@@ -469,8 +474,16 @@ function showDebugBadges() {
     // Skip if element is not visible or has zero size (double check)
     if (rect.width === 0 || rect.height === 0) return;
 
+    // Get element info for the label
+    const name = getAccessibleName(element);
+    const role = getElementRole(element);
+
+    // Format: "[ID] name" or "[ID] role" if no name
+    const shortName = name.length > 20 ? name.substring(0, 17) + '...' : name;
+    const label = shortName ? `[${id}] ${shortName}` : `[${id}] ${role}`;
+
     const badge = document.createElement('div');
-    badge.textContent = id;
+    badge.textContent = label;
     badge.style.cssText = `
       position: fixed;
       top: ${rect.top}px;
@@ -486,19 +499,100 @@ function showDebugBadges() {
       line-height: 1;
       z-index: 9999999;
       box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     `;
     debugBadgeContainer.appendChild(badge);
   });
 
   console.log('[Content] Debug badges shown:', refToElementMap.size);
+
+  // Setup real-time listeners if not already setup
+  setupDebugListeners();
 }
 
-function hideDebugBadges() {
+function hideDebugBadges(keepActive = false) {
   if (debugBadgeContainer && debugBadgeContainer.parentNode) {
     debugBadgeContainer.parentNode.removeChild(debugBadgeContainer);
   }
   debugBadgeContainer = null;
-  console.log('[Content] Debug badges hidden');
+
+  if (!keepActive) {
+    isDebugModeActive = false;
+    cleanupDebugListeners();
+    console.log('[Content] Debug badges hidden');
+  }
+}
+
+/**
+ * Debounced refresh of debug badges
+ */
+function refreshDebugBadges() {
+  if (!isDebugModeActive) return;
+
+  // Debounce to avoid too many refreshes
+  clearTimeout(debugRefreshTimeout);
+  debugRefreshTimeout = setTimeout(() => {
+    if (isDebugModeActive) {
+      showDebugBadges();
+    }
+  }, 150);
+}
+
+/**
+ * Setup listeners for real-time debug badge updates
+ */
+function setupDebugListeners() {
+  // Remove existing listeners first
+  cleanupDebugListeners();
+
+  // Scroll listener - badges need repositioning
+  window.addEventListener('scroll', refreshDebugBadges, { passive: true });
+
+  // Resize listener - viewport changes
+  window.addEventListener('resize', refreshDebugBadges, { passive: true });
+
+  // DOM mutation observer - new elements added/removed
+  debugMutationObserver = new MutationObserver((mutations) => {
+    // Only refresh if there are actual structural changes
+    const hasRelevantChange = mutations.some(
+      (m) =>
+        m.type === 'childList' ||
+        (m.type === 'attributes' &&
+          (m.attributeName === 'style' ||
+            m.attributeName === 'class' ||
+            m.attributeName === 'hidden'))
+    );
+    if (hasRelevantChange) {
+      refreshDebugBadges();
+    }
+  });
+
+  debugMutationObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'hidden', 'disabled'],
+  });
+
+  console.log('[Content] Debug listeners setup for real-time updates');
+}
+
+/**
+ * Cleanup debug listeners
+ */
+function cleanupDebugListeners() {
+  window.removeEventListener('scroll', refreshDebugBadges);
+  window.removeEventListener('resize', refreshDebugBadges);
+
+  if (debugMutationObserver) {
+    debugMutationObserver.disconnect();
+    debugMutationObserver = null;
+  }
+
+  clearTimeout(debugRefreshTimeout);
 }
 
 /**

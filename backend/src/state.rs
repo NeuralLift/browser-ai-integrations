@@ -4,7 +4,7 @@ use rig::client::ProviderClient;
 use rig::providers::gemini;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot};
 
 pub struct AppState {
     pub llm: GeminiProvider,
@@ -35,7 +35,10 @@ impl AppState {
         connections.remove(session_id);
     }
 
-    pub async fn get_connection(&self, session_id: &str) -> Option<mpsc::UnboundedSender<WsMessage>> {
+    pub async fn get_connection(
+        &self,
+        session_id: &str,
+    ) -> Option<mpsc::UnboundedSender<WsMessage>> {
         let connections = self.active_connections.read().await;
         connections.get(session_id).cloned()
     }
@@ -58,4 +61,3 @@ impl AppState {
         }
     }
 }
-

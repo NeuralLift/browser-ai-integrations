@@ -1,16 +1,19 @@
+use crate::handler::agent_handler;
+use crate::models::ws::{ActionCommand, ActionResult, WsMessage};
+use crate::state::AppState;
 use axum::{
     Router,
-    extract::{State, ws::{WebSocket, WebSocketUpgrade, Message}},
+    extract::{
+        State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     response::IntoResponse,
     routing::{get, post},
 };
-use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
-use crate::state::AppState;
-use crate::handler::agent_handler;
-use crate::models::ws::{ActionCommand, ActionResult, WsMessage};
 use futures::{SinkExt, StreamExt};
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 pub fn app_router(state: Arc<AppState>) -> Router {
@@ -18,7 +21,7 @@ pub fn app_router(state: Arc<AppState>) -> Router {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
-    
+
     Router::new()
         .route("/health", get(health_check))
         .route("/api/chat", post(agent_handler::run_agent))
@@ -32,10 +35,7 @@ async fn health_check() -> impl IntoResponse {
     axum::Json(serde_json::json!({"status": "ok"}))
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -47,7 +47,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (tx, mut rx) = mpsc::unbounded_channel::<WsMessage>();
 
     // Register connection
-    state.register_connection(session_id.clone(), tx.clone()).await;
+    state
+        .register_connection(session_id.clone(), tx.clone())
+        .await;
 
     // Send session_id to frontend
     let init_msg = WsMessage::SessionInit {
@@ -78,19 +80,40 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 Ok(WsMessage::SessionUpdate { url, title }) => {
                     tracing::info!("Context update: url={}, title={:?}", url, title);
                 }
-                Ok(WsMessage::ActionRequest { request_id, command }) => {
+                Ok(WsMessage::ActionRequest {
+                    request_id,
+                    command,
+                }) => {
                     match &command {
                         ActionCommand::NavigateTo { url } => {
-                            tracing::info!("ActionRequest[{}]: navigate_to url={}", request_id, url);
+                            tracing::info!(
+                                "ActionRequest[{}]: navigate_to url={}",
+                                request_id,
+                                url
+                            );
                         }
                         ActionCommand::ClickElement { ref_id } => {
-                            tracing::info!("ActionRequest[{}]: click_element ref={}", request_id, ref_id);
+                            tracing::info!(
+                                "ActionRequest[{}]: click_element ref={}",
+                                request_id,
+                                ref_id
+                            );
                         }
                         ActionCommand::TypeText { ref_id, text } => {
-                            tracing::info!("ActionRequest[{}]: type_text ref={}, text={}", request_id, ref_id, text);
+                            tracing::info!(
+                                "ActionRequest[{}]: type_text ref={}, text={}",
+                                request_id,
+                                ref_id,
+                                text
+                            );
                         }
                         ActionCommand::ScrollTo { x, y } => {
-                            tracing::info!("ActionRequest[{}]: scroll_to x={}, y={}", request_id, x, y);
+                            tracing::info!(
+                                "ActionRequest[{}]: scroll_to x={}, y={}",
+                                request_id,
+                                x,
+                                y
+                            );
                         }
                     }
                     // Echo back as ActionResult (placeholder for actual execution simulation if needed)
@@ -113,7 +136,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     let _ = tx.send(result);
                 }
                 Ok(WsMessage::ActionResult(res)) => {
-                    tracing::info!("ActionResult received[{}]: success={}", res.request_id, res.success);
+                    tracing::info!(
+                        "ActionResult received[{}]: success={}",
+                        res.request_id,
+                        res.success
+                    );
                     let request_id = res.request_id.clone();
                     state.complete_pending_action(&request_id, res).await;
                 }

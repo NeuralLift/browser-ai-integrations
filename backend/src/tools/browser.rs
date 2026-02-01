@@ -130,7 +130,10 @@ impl Tool for TypeTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        Ok(format!("Typing '{}' into element with ref ID: {}", args.text, args.ref_id))
+        Ok(format!(
+            "Typing '{}' into element with ref ID: {}",
+            args.text, args.ref_id
+        ))
     }
 }
 
