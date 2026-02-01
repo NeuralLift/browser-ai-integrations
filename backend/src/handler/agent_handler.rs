@@ -24,7 +24,9 @@ use crate::models::ChatResponse;
 use crate::models::ws::{ActionCommand, WsMessage};
 use crate::state::AppState;
 use crate::tools::browser::{
-    ClickArgs, ClickTool, NavigateArgs, NavigateTool, ScrollArgs, ScrollTool, TypeArgs, TypeTool,
+    ClickArgs, ClickTool, GetInteractiveElementsArgs, GetInteractiveElementsTool,
+    GetPageContentArgs, GetPageContentTool, NavigateArgs, NavigateTool, ScrollArgs, ScrollTool,
+    TypeArgs, TypeTool,
 };
 
 // --- Error Type ---
@@ -164,6 +166,60 @@ impl Tool for WsScrollTool {
     }
 }
 
+struct WsGetPageContentTool {
+    state: Arc<AppState>,
+    session_id: String,
+}
+
+impl Tool for WsGetPageContentTool {
+    const NAME: &'static str = GetPageContentTool::NAME;
+    type Error = ToolError;
+    type Args = GetPageContentArgs;
+    type Output = String;
+
+    async fn definition(&self, prompt: String) -> ToolDefinition {
+        GetPageContentTool.definition(prompt).await
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        execute_tool(
+            &self.state,
+            &self.session_id,
+            ActionCommand::GetPageContent {
+                max_length: args.max_length,
+            },
+        )
+        .await
+        .map_err(ToolError)
+    }
+}
+
+struct WsGetInteractiveElementsTool {
+    state: Arc<AppState>,
+    session_id: String,
+}
+
+impl Tool for WsGetInteractiveElementsTool {
+    const NAME: &'static str = GetInteractiveElementsTool::NAME;
+    type Error = ToolError;
+    type Args = GetInteractiveElementsArgs;
+    type Output = String;
+
+    async fn definition(&self, prompt: String) -> ToolDefinition {
+        GetInteractiveElementsTool.definition(prompt).await
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        execute_tool(
+            &self.state,
+            &self.session_id,
+            ActionCommand::GetInteractiveElements { limit: args.limit },
+        )
+        .await
+        .map_err(ToolError)
+    }
+}
+
 async fn execute_tool(
     state: &Arc<AppState>,
     session_id: &str,
@@ -238,68 +294,36 @@ pub async fn run_agent(
 
         let client = gemini::Client::from_env(); // Create fresh client to build agent
 
-        let mut preamble = r#"You are a browser automation assistant. You can control the browser using tools AND see/analyze screenshots.
+        let preamble = r#"You are a browser automation assistant. You can control the browser using tools AND see/analyze screenshots.
 
 ## Available Tools
+### Action Tools
 - `navigate_to(url)`: Navigate to a URL (e.g., "https://google.com")
 - `click_element(ref)`: Click an element using its Ref ID number
 - `type_text(ref, text)`: Type text into an input field using its Ref ID
 - `scroll_to(x, y)`: Scroll the page to coordinates
 
+### Context Tools (use these FIRST when needed)
+- `get_interactive_elements(limit)`: Scan page for buttons, inputs, links. **CALL THIS FIRST** before clicking or typing.
+- `get_page_content(max_length)`: Get page text content. Use when you need to read, summarize, or analyze text.
+
 ## Your Capabilities
-1. **Browser Automation**: Control the browser using the tools above
-2. **Visual Analysis**: When screenshot is provided, you CAN SEE and READ everything visible on screen:
-   - Read and analyze any code, text, articles, or content shown
-   - Identify UI elements, layouts, buttons, forms
-   - Answer questions about what's displayed on the page
-   - Help debug code by reading error messages or source code visible on screen
+1. **Browser Automation**: Control the browser using action tools
+2. **Visual Analysis**: When screenshot is provided, you CAN SEE and READ everything visible on screen
+3. **Dynamic Context**: Use context tools to get page data when needed
 
 ## Instructions
-1. When the user asks to fill/type/enter something, use `type_text` with the appropriate Ref ID and text
-2. When the user asks to click something, use `click_element` with the Ref ID
+1. **Before clicking/typing**: Call `get_interactive_elements()` to find element Ref IDs
+2. **Before reading/summarizing**: Call `get_page_content()` to get page text
 3. When the user asks to go to a website, use `navigate_to`
-4. When the user asks about the page content (with screenshot), read and describe what you see
-5. When asked to read/explain code visible on screen, analyze it thoroughly
-6. Always respond with a brief confirmation of what you did
-7. If no elements are available or you can't find a matching element, explain what you need
+4. When the user asks about the page content (with screenshot), read the screenshot OR call `get_page_content()`
+5. Always respond with a brief confirmation of what you did
 
-## Example Actions
-- User: "isi dengan 12345" → Find the input field's Ref ID and use type_text(ref, "12345")
-- User: "klik tombol submit" → Find the submit button's Ref ID and use click_element(ref)
-- User: "buka google" → Use navigate_to("https://google.com")
-- User: "jelaskan kode ini" + [screenshot] → Read and explain the code visible in the screenshot
-- User: "ada error apa?" + [screenshot] → Read and explain the error message shown
+## Example Flows
+- User: "klik tombol login" → Call get_interactive_elements() → Find login button Ref ID → Call click_element(ref)
+- User: "rangkum halaman ini" → Call get_page_content() → Summarize the returned text
+- User: "buka google" → Call navigate_to("https://google.com")
 "#.to_string();
-
-        if let Some(elements) = &request.interactive_elements {
-            if !elements.is_empty() {
-                let formatted_elements = format_interactive_elements(elements);
-                preamble.push_str("\n## Available Interactive Elements on Current Page\n");
-                preamble.push_str(&formatted_elements);
-                preamble.push_str(
-                    "\n\nMatch user requests to elements above by name/role and use their Ref ID.",
-                );
-            } else {
-                preamble.push_str("\n## Note\nNo interactive elements detected on the current page. You may need to navigate to a page first or ask the user for more context.");
-            }
-        } else {
-            preamble.push_str("\n## Note\nNo page context provided. Ask the user to refresh the page or provide more details.");
-        }
-
-        // Add page content to preamble if provided
-        if let Some(content) = &request.page_content {
-            if !content.is_empty() {
-                // Truncate to avoid token limits (max ~8000 chars)
-                let truncated = if content.len() > 8000 {
-                    format!("{}...\n[Content truncated]", &content[..8000])
-                } else {
-                    content.clone()
-                };
-                preamble.push_str("\n## Current Page Text Content\n");
-                preamble.push_str("Below is the text content of the page. Use this to answer questions about the page:\n\n");
-                preamble.push_str(&truncated);
-            }
-        }
 
         let agent = client
             .agent(gemini::completion::GEMINI_2_5_FLASH)
@@ -317,6 +341,14 @@ pub async fn run_agent(
                 session_id: session_id.clone(),
             })
             .tool(WsScrollTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
+            .tool(WsGetPageContentTool {
+                state: state.clone(),
+                session_id: session_id.clone(),
+            })
+            .tool(WsGetInteractiveElementsTool {
                 state: state.clone(),
                 session_id: session_id.clone(),
             })

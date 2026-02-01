@@ -41,6 +41,10 @@ pub enum ActionCommand {
     },
     #[serde(rename = "scroll_to")]
     ScrollTo { x: i32, y: i32 },
+    #[serde(rename = "get_page_content")]
+    GetPageContent { max_length: Option<usize> },
+    #[serde(rename = "get_interactive_elements")]
+    GetInteractiveElements { limit: Option<usize> },
 }
 
 #[derive(Debug, Deserialize, Serialize)]

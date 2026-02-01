@@ -713,51 +713,7 @@ document.addEventListener('DOMContentLoaded', () => {
         instruction = currentSession.customInstruction;
       }
 
-      // Fetch interactive elements if in tool-enabled mode
-      let interactiveElements = undefined;
-      let pageContent = undefined;
-      if (wsSessionId) {
-        try {
-          const [tab] = await chrome.tabs.query({
-            active: true,
-            currentWindow: true,
-          });
-          if (tab?.id) {
-            const snapshot = await chrome.tabs.sendMessage(tab.id, {
-              action: 'getSnapshot',
-            });
-            if (snapshot && snapshot.tree) {
-              interactiveElements = snapshot.tree.slice(0, 300).map((el) => ({
-                id: el.id,
-                role: el.role,
-                name: el.name,
-              }));
-              console.log(
-                `[Sidepanel] Sending ${interactiveElements.length} interactive elements`
-              );
-            }
-
-            try {
-              const contentResponse = await chrome.tabs.sendMessage(tab.id, {
-                action: 'getContent',
-              });
-              if (contentResponse && contentResponse.text) {
-                pageContent = contentResponse.text;
-                console.log(
-                  `[Sidepanel] Sending page content (${pageContent.length} chars)`
-                );
-              }
-            } catch (contentErr) {
-              console.warn(
-                '[Sidepanel] Could not fetch page content:',
-                contentErr
-              );
-            }
-          }
-        } catch (e) {
-          console.error('[Sidepanel] Failed to fetch interactive elements:', e);
-        }
-      }
+      // Lazy fetching: Backend will request data via tools when needed
 
       const response = await fetch('http://localhost:3000/agent/run', {
         method: 'POST',
@@ -770,8 +726,7 @@ document.addEventListener('DOMContentLoaded', () => {
           custom_instruction: instruction || undefined,
           image: imageToSend || undefined,
           session_id: wsSessionId || undefined,
-          interactive_elements: interactiveElements,
-          page_content: pageContent,
+          // interactive_elements and page_content removed - lazy fetching via tools
         }),
       });
 
@@ -1371,6 +1326,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return `Type "${action.text}" into element [${action.ref}]`;
       case 'scroll_to':
         return `Scroll to (${action.x}, ${action.y})`;
+      case 'get_page_content':
+        return 'Fetching page content';
+      case 'get_interactive_elements':
+        return 'Fetching interactive elements';
       default:
         return JSON.stringify(action);
     }
@@ -1436,10 +1395,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!tab) throw new Error('No active tab');
 
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'execute',
-        command: action,
-      });
+      let response;
+      if (action.type === 'get_page_content') {
+        const contentResponse = await chrome.tabs.sendMessage(tab.id, {
+          action: 'getContent',
+          maxLength: action.max_length,
+        });
+        response = { success: true, data: contentResponse?.text };
+      } else if (action.type === 'get_interactive_elements') {
+        const snapshot = await chrome.tabs.sendMessage(tab.id, {
+          action: 'getSnapshot',
+          limit: action.limit,
+        });
+        response = { success: true, data: snapshot };
+      } else {
+        response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'execute',
+          command: action,
+        });
+      }
 
       // Update status
       if (response && response.success) {
@@ -1449,7 +1423,7 @@ document.addEventListener('DOMContentLoaded', () => {
           timestamp: Date.now(),
         };
         renderMessage(successMsg);
-        return { success: true };
+        return response;
       } else {
         throw new Error(response.error || 'Unknown error');
       }

@@ -138,7 +138,7 @@ function extractGenericContent() {
 }
 
 // Extract page content with site-specific handling
-function extractPageContent() {
+function extractPageContent(maxLength = MAX_TEXT_LENGTH) {
   let text = '';
 
   // Check for site-specific extractor
@@ -166,8 +166,8 @@ function extractPageContent() {
   }
 
   // Truncate if too long
-  if (text.length > MAX_TEXT_LENGTH) {
-    text = text.substring(0, MAX_TEXT_LENGTH) + '... [truncated]';
+  if (text.length > maxLength) {
+    text = text.substring(0, maxLength) + '... [truncated]';
   }
 
   console.log('[Content] Extracted text length:', text.length);
@@ -343,13 +343,13 @@ function getElementBounds(el) {
 /**
  * Generates a snapshot of the current page's interactive elements
  */
-function generateSnapshot() {
+function generateSnapshot(limit = 300) {
   const tree = [];
   let refId = 1;
   refToElementMap.clear();
 
   function traverse(element) {
-    if (!element) return;
+    if (!element || tree.length >= limit) return;
 
     // Skip our own UI
     if (element.hasAttribute('data-browser-agent-ui')) return;
@@ -373,12 +373,14 @@ function generateSnapshot() {
     // Continue DFS even if current element is not interactive
     // (it might have interactive children)
     for (const child of element.children) {
+      if (tree.length >= limit) break;
       traverse(child);
     }
 
     // Traverse Shadow DOM if present (open mode only)
-    if (element.shadowRoot) {
+    if (element.shadowRoot && tree.length < limit) {
       for (const child of element.shadowRoot.children) {
+        if (tree.length >= limit) break;
         traverse(child);
       }
     }
@@ -652,9 +654,10 @@ function executeAction(command) {
 // Listen for messages from background script
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'getContext') {
+  if (message.action === 'getContext' || message.action === 'getContent') {
     try {
-      const content = extractPageContent();
+      const maxLength = message.maxLength || 15000;
+      const content = extractPageContent(maxLength);
       console.log(
         '[Content] Sending context, text length:',
         content.text.length
@@ -670,7 +673,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   } else if (message.action === 'getSnapshot') {
     try {
-      const snapshot = generateSnapshot();
+      const limit = message.limit || 300;
+      const snapshot = generateSnapshot(limit);
       console.log(
         '[Content] Sending snapshot, elements found:',
         snapshot.tree.length

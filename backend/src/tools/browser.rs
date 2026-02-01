@@ -179,6 +179,80 @@ impl Tool for ScrollTool {
     }
 }
 
+/// Tool to get page content
+#[derive(Deserialize, Serialize)]
+pub struct GetPageContentTool;
+
+#[derive(Deserialize, Serialize)]
+pub struct GetPageContentArgs {
+    pub max_length: Option<usize>,
+}
+
+impl Tool for GetPageContentTool {
+    const NAME: &'static str = "get_page_content";
+    type Error = BrowserToolError;
+    type Args = GetPageContentArgs;
+    type Output = String;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Get the text content of the current page. Use this when you need to read, summarize, or analyze the page content.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "max_length": {
+                        "type": "integer",
+                        "description": "Maximum number of characters to return"
+                    }
+                },
+                "required": []
+            }),
+        }
+    }
+
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        Ok("Getting page content...".to_string())
+    }
+}
+
+/// Tool to get interactive elements
+#[derive(Deserialize, Serialize)]
+pub struct GetInteractiveElementsTool;
+
+#[derive(Deserialize, Serialize)]
+pub struct GetInteractiveElementsArgs {
+    pub limit: Option<usize>,
+}
+
+impl Tool for GetInteractiveElementsTool {
+    const NAME: &'static str = "get_interactive_elements";
+    type Error = BrowserToolError;
+    type Args = GetInteractiveElementsArgs;
+    type Output = String;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Scan the page for interactive elements (buttons, inputs, links). Use this when you need to click, type, or interact with page elements. Returns a list of elements with their Ref IDs.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of elements to return"
+                    }
+                },
+                "required": []
+            }),
+        }
+    }
+
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        Ok("Scanning for interactive elements...".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +285,19 @@ mod tests {
         let args: ScrollArgs = serde_json::from_value(args_json).unwrap();
         assert_eq!(args.x, 100);
         assert_eq!(args.y, 200);
+    }
+
+    #[tokio::test]
+    async fn test_get_page_content_serialization() {
+        let args_json = json!({ "max_length": 1000 });
+        let args: GetPageContentArgs = serde_json::from_value(args_json).unwrap();
+        assert_eq!(args.max_length, Some(1000));
+    }
+
+    #[tokio::test]
+    async fn test_get_interactive_elements_serialization() {
+        let args_json = json!({ "limit": 50 });
+        let args: GetInteractiveElementsArgs = serde_json::from_value(args_json).unwrap();
+        assert_eq!(args.limit, Some(50));
     }
 }

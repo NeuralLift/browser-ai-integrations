@@ -115,6 +115,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 y
                             );
                         }
+                        ActionCommand::GetPageContent { max_length } => {
+                            tracing::info!(
+                                "ActionRequest[{}]: get_page_content max_length={:?}",
+                                request_id,
+                                max_length
+                            );
+                        }
+                        ActionCommand::GetInteractiveElements { limit } => {
+                            tracing::info!(
+                                "ActionRequest[{}]: get_interactive_elements limit={:?}",
+                                request_id,
+                                limit
+                            );
+                        }
                     }
                     // Echo back as ActionResult (placeholder for actual execution simulation if needed)
                     // In real usage, the frontend executes and sends ActionResult back.
