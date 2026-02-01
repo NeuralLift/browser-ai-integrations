@@ -348,6 +348,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'screenshot-mode-toggle'
   );
   const screenshotModeLabel = document.getElementById('screenshot-mode-label');
+  const confirmModeToggle = document.getElementById('confirm-mode-toggle');
+  const debugModeToggle = document.getElementById('debug-mode-toggle');
 
   // Modals
   const settingsModal = document.getElementById('settings-modal');
@@ -385,6 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isProcessing = false;
   let currentSession = null;
   let currentImage = null; // Base64 string
+  let wsSessionId = null;
 
   // Theme management
   function getTheme() {
@@ -407,6 +410,31 @@ document.addEventListener('DOMContentLoaded', () => {
   function toggleTheme() {
     const current = getTheme();
     setTheme(current === 'dark' ? 'light' : 'dark');
+  }
+
+  // Fetch WebSocket session ID from background script
+  async function fetchWsSessionId(retries = 3, delay = 500) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: 'getWsSessionId',
+        });
+        if (response && response.sessionId) {
+          wsSessionId = response.sessionId;
+          return true;
+        }
+        // Session ID not available yet, wait and retry
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, delay * attempt));
+        }
+      } catch (e) {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, delay * attempt));
+        }
+      }
+    }
+    console.warn('[Sidepanel] Tools disabled - no session ID');
+    return false;
   }
 
   // Initialize theme
@@ -456,7 +484,13 @@ document.addEventListener('DOMContentLoaded', () => {
         bubbleDiv.appendChild(img);
       }
       const textSpan = document.createElement('div');
-      textSpan.textContent = message.text;
+      // Escape HTML then convert newlines to <br> for proper line break rendering
+      const escapedText = message.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      textSpan.innerHTML = escapedText;
       bubbleDiv.appendChild(textSpan);
     } else {
       bubbleDiv.innerHTML = parseMarkdown(message.text);
@@ -668,15 +702,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Handle screenshot toggle
       if (screenshotToggle.checked) {
         const fullPage = screenshotModeToggle.checked;
-        console.log(
-          `[Sidepanel] Capturing ${fullPage ? 'full page' : 'viewport'} screenshot...`
-        );
         await chrome.runtime.sendMessage({
           action: 'forceContextUpdate',
           fullPage,
         });
       } else {
-        console.log('[Sidepanel] Skipping screenshot capture (toggle OFF)');
         await chrome.runtime.sendMessage({
           action: 'updateContextNoScreenshot',
         });
@@ -689,26 +719,58 @@ document.addEventListener('DOMContentLoaded', () => {
         instruction = currentSession.customInstruction;
       }
 
+      // Lazy fetching: Backend will request data via tools when needed
+
+      // Ensure we have session ID for tool-enabled mode
+      if (!wsSessionId) {
+        await fetchWsSessionId();
+      }
+
       const response = await fetch('http://localhost:3000/agent/run', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: text,
-          stream: true,
+          query: text,
+          stream: !wsSessionId, // Don't request stream when using tools
           custom_instruction: instruction || undefined,
           image: imageToSend || undefined,
+          session_id: wsSessionId || undefined,
+          // interactive_elements and page_content removed - lazy fetching via tools
         }),
       });
 
       if (!response.ok) {
         hideTyping();
-        throw new Error('Failed to get response');
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to get response');
       }
 
-      // Handle SSE Stream
-      if (window.readSSEStream) {
+      // Check Content-Type to determine response format
+      const contentType = response.headers.get('Content-Type') || '';
+      const isJsonResponse = contentType.includes('application/json');
+
+      // Handle JSON response (tool-enabled mode)
+      if (isJsonResponse) {
+        hideTyping();
+        const data = await response.json();
+
+        const assistantMsg = {
+          role: 'assistant',
+          text: data.response || 'Tidak ada respons',
+          timestamp: Date.now(),
+          tokens: {
+            prompt: data.prompt_tokens,
+            response: data.response_tokens,
+            total: data.total_tokens,
+          },
+        };
+
+        renderMessage(assistantMsg);
+        SessionManager.addMessageToSession(currentSession.id, assistantMsg);
+        updateStatus(true);
+      } else if (window.readSSEStream) {
         let fullText = '';
         let bubbleDiv = null;
         let renderTimeout = null;
@@ -782,9 +844,35 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       hideTyping();
       console.error('Error sending message:', error);
+
+      // Determine if this is a network error or an API error
+      const isNetworkError =
+        error.message === 'Failed to fetch' ||
+        error.name === 'TypeError' ||
+        error.message.includes('NetworkError');
+
+      // Check for known error patterns and provide user-friendly messages
+      let errorText;
+      if (isNetworkError) {
+        errorText =
+          '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`';
+      } else if (
+        error.message.includes('empty') ||
+        error.message.includes('no message')
+      ) {
+        errorText =
+          'Maaf, saya tidak yakin tindakan apa yang harus dilakukan. Bisa tolong jelaskan lebih spesifik? Contoh:\n- "isi field email dengan test@example.com"\n- "klik tombol Submit"\n- "buka halaman google.com"';
+      } else if (error.message.includes('CompletionError')) {
+        // Strip internal error details for cleaner display
+        errorText =
+          '**Error:** Terjadi kesalahan saat memproses permintaan. Coba lagi atau berikan perintah yang lebih spesifik.';
+      } else {
+        errorText = `**Error:** ${error.message}`;
+      }
+
       const errorMsg = {
         role: 'assistant',
-        text: '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`',
+        text: errorText,
         timestamp: Date.now(),
       };
       renderMessage(errorMsg);
@@ -813,10 +901,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Check backend connection and get current tab info
   async function initialize() {
-    console.log('[Sidepanel] Initializing...');
-
     // Check backend health
     await checkConnectionStatus();
+
+    await fetchWsSessionId();
 
     initSession();
     await refreshTabInfo();
@@ -891,7 +979,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Settings Modal
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
-      console.log('Settings button clicked');
       try {
         const settings = SettingsManager.getSettings();
         globalInstructionInput.value = settings.globalInstruction || '';
@@ -906,8 +993,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Error opening settings:', e);
       }
     });
-  } else {
-    console.error('Settings button not found');
   }
 
   closeSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
@@ -1158,6 +1243,303 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       );
     }
+  });
+
+  // Confirm Mode Logic
+  let confirmMode = false;
+
+  // Load confirm mode
+  chrome.storage.local.get(['confirmMode'], (result) => {
+    confirmMode = result.confirmMode || false;
+    if (confirmModeToggle) confirmModeToggle.checked = confirmMode;
+  });
+
+  if (confirmModeToggle) {
+    confirmModeToggle.addEventListener('change', (e) => {
+      confirmMode = e.target.checked;
+      chrome.storage.local.set({ confirmMode });
+      // Prevent closing menu
+      e.stopPropagation();
+    });
+
+    // Stop propagation for the toggle itself too
+    confirmModeToggle.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  // Debug Mode Logic
+  let debugMode = false;
+
+  // Load debug mode state and apply it
+  chrome.storage.local.get(['debugMode'], async (result) => {
+    debugMode = result.debugMode || false;
+    if (debugModeToggle) debugModeToggle.checked = debugMode;
+
+    // If debug mode was ON, apply it to the current page
+    if (debugMode) {
+      try {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleDebug',
+            value: true,
+          });
+        }
+      } catch {
+        // Content script may not be loaded yet
+      }
+    }
+  });
+
+  if (debugModeToggle) {
+    debugModeToggle.addEventListener('change', async (e) => {
+      debugMode = e.target.checked;
+      chrome.storage.local.set({ debugMode });
+
+      // Send message to content script
+      try {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleDebug',
+            value: debugMode,
+          });
+        }
+      } catch {
+        // Content script may not be loaded
+      }
+
+      e.stopPropagation();
+    });
+
+    debugModeToggle.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  // SVG Icons for actions
+  const ACTION_ICONS = {
+    navigate: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    click: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>`,
+    type: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h12"/></svg>`,
+    scroll: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`,
+    read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+    search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    action: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+    success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    loading: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  };
+
+  // Action Preview & Execution
+  function formatAction(action) {
+    switch (action.type) {
+      case 'navigate_to':
+        return {
+          label: 'Navigasi',
+          detail: action.url,
+          icon: ACTION_ICONS.navigate,
+        };
+      case 'click_element':
+        return {
+          label: 'Klik Elemen',
+          detail: `ref: ${action.ref}`,
+          icon: ACTION_ICONS.click,
+        };
+      case 'type_text':
+        return {
+          label: 'Ketik Teks',
+          detail: `"${action.text}" → ref: ${action.ref}`,
+          icon: ACTION_ICONS.type,
+        };
+      case 'scroll_to':
+        return {
+          label: 'Scroll',
+          detail: `posisi (${action.x}, ${action.y})`,
+          icon: ACTION_ICONS.scroll,
+        };
+      case 'get_page_content':
+        return {
+          label: 'Membaca Halaman',
+          detail: 'mengambil konten teks...',
+          icon: ACTION_ICONS.read,
+        };
+      case 'get_interactive_elements':
+        return {
+          label: 'Mencari Elemen',
+          detail: 'mengambil elemen interaktif...',
+          icon: ACTION_ICONS.search,
+        };
+      default:
+        return {
+          label: 'Aksi',
+          detail: JSON.stringify(action),
+          icon: ACTION_ICONS.action,
+        };
+    }
+  }
+
+  // Render action status message with styled bubble
+  function renderActionStatus(action, status = 'executing') {
+    const formatted = formatAction(action);
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+
+    const statusClass =
+      status === 'success'
+        ? 'success'
+        : status === 'error'
+          ? 'error'
+          : 'executing';
+    const statusIcon =
+      status === 'success'
+        ? ACTION_ICONS.success
+        : status === 'error'
+          ? ACTION_ICONS.error
+          : ACTION_ICONS.loading;
+
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = `action-status ${statusClass}`;
+    bubbleDiv.innerHTML = `
+      <span class="action-icon">${status === 'executing' ? formatted.icon : statusIcon}</span>
+      <div class="action-content">
+        <div class="action-type">${formatted.label}</div>
+        <div class="action-detail">${formatted.detail}</div>
+      </div>
+    `;
+
+    messageDiv.appendChild(bubbleDiv);
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    return messageDiv;
+  }
+
+  function showActionPreview(action, onApprove, onCancel) {
+    const formatted = formatAction(action);
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'bubble';
+    bubbleDiv.style.background = 'var(--bg-tertiary)';
+    bubbleDiv.style.border = '1px solid var(--accent)'; // Highlight it
+
+    bubbleDiv.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 8px;">⚠️ Konfirmasi Aksi</div>
+      <div class="action-status executing" style="margin-bottom: 12px;">
+        <span class="action-icon">${formatted.icon}</span>
+        <div class="action-content">
+          <div class="action-type">${formatted.label}</div>
+          <div class="action-detail">${formatted.detail}</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="primary-btn approve-btn" style="flex: 1;">Setuju</button>
+        <button class="secondary-btn cancel-btn" style="flex: 1;">Batal</button>
+      </div>
+    `;
+
+    messageDiv.appendChild(bubbleDiv);
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    const approveBtn = bubbleDiv.querySelector('.approve-btn');
+    const cancelBtn = bubbleDiv.querySelector('.cancel-btn');
+
+    approveBtn.onclick = () => {
+      messageDiv.remove();
+      onApprove();
+    };
+
+    cancelBtn.onclick = () => {
+      messageDiv.remove();
+      const cancelMsg = {
+        role: 'assistant',
+        text: '❌ Aksi dibatalkan oleh pengguna.',
+        timestamp: Date.now(),
+      };
+      renderMessage(cancelMsg);
+      onCancel();
+    };
+  }
+
+  async function performAction(action) {
+    // Show executing status
+    const statusMessage = renderActionStatus(action, 'executing');
+
+    try {
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (!tab) throw new Error('No active tab');
+
+      let response;
+      if (action.type === 'get_page_content') {
+        const contentResponse = await chrome.tabs.sendMessage(tab.id, {
+          action: 'getContent',
+          maxLength: action.max_length,
+        });
+        response = { success: true, data: contentResponse?.text };
+      } else if (action.type === 'get_interactive_elements') {
+        const snapshot = await chrome.tabs.sendMessage(tab.id, {
+          action: 'getSnapshot',
+          limit: action.limit,
+        });
+        response = { success: true, data: snapshot };
+      } else {
+        response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'execute',
+          command: action,
+        });
+      }
+
+      // Update status message
+      if (response && response.success) {
+        statusMessage.remove();
+        renderActionStatus(action, 'success');
+        return response;
+      } else {
+        throw new Error(response?.error || 'Unknown error');
+      }
+    } catch (e) {
+      console.error('Action failed:', e);
+      statusMessage.remove();
+      renderActionStatus({ ...action, errorMessage: e.message }, 'error');
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Listener for actions from background/backend
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'propose_action') {
+      const action = message.data;
+
+      if (confirmMode) {
+        showActionPreview(
+          action,
+          async () => {
+            // Approve
+            const result = await performAction(action);
+            sendResponse(result);
+          },
+          () => {
+            // Cancel
+            sendResponse({ success: false, error: 'Cancelled by user' });
+          }
+        );
+        return true; // Keep channel open for async response
+      } else {
+        // Auto-execute
+        performAction(action).then((result) => sendResponse(result));
+        return true;
+      }
+    }
+    // Don't return true for other messages to allow other listeners to handle them
   });
 
   // Initialize on load

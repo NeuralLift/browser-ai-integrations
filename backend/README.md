@@ -26,7 +26,7 @@ Rust backend menggunakan Rig library untuk Browser AI Assistant. Ini adalah vers
 3. Edit file `.env` dan masukkan API Key Anda:
 
    ```env
-   GOOGLE_API_KEY=your_gemini_api_key_here
+   GEMINI_API_KEY=your_gemini_api_key_here
    ```
 
 4. Jalankan server:

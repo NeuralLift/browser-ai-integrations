@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Browser AI Assistant",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Connect your browser to AI for real-time assistance",
 
   "permissions": [

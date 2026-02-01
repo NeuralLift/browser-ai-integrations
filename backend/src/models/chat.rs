@@ -1,15 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+// Used in tests only
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub status: String,
 }
 
+// Used in tests only
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
     pub custom_instruction: Option<String>,
-    #[allow(dead_code)]
     pub image: Option<String>,
 }
 

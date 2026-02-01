@@ -961,6 +961,101 @@
       ::-webkit-scrollbar-thumb:hover {
         background: var(--text-muted);
       }
+
+      /* Action Status Styles */
+      .action-status {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .action-status.executing {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+      }
+
+      .action-status.success {
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+      }
+
+      .action-status.error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+      }
+
+      [data-theme='dark'] .action-status.success {
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.4);
+      }
+
+      [data-theme='dark'] .action-status.error {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+      }
+
+      .action-status .action-icon {
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .action-status .action-icon svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .action-status.executing .action-icon {
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .action-status.executing .action-icon svg {
+        stroke: var(--text-secondary);
+      }
+
+      .action-status.success .action-icon svg {
+        stroke: #22c55e;
+      }
+
+      .action-status.error .action-icon svg {
+        stroke: #ef4444;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .action-status .action-content {
+        flex: 1;
+      }
+
+      .action-status .action-type {
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+
+      .action-status .action-detail {
+        opacity: 0.85;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        word-break: break-all;
+      }
     </style>
   </head>
   <body data-theme="dark">
@@ -1265,6 +1360,45 @@
               </div>
               <label class="switch">
                 <input type="checkbox" id="screenshot-mode-toggle" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <div class="menu-item toggle-item">
+              <div class="menu-item-left">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M9 11l3 3L22 4" />
+                  <path
+                    d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+                  />
+                </svg>
+                Confirm Actions
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="confirm-mode-toggle" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <div class="menu-item toggle-item">
+              <div class="menu-item-left">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                Show Ref
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="debug-mode-toggle" />
                 <span class="slider round"></span>
               </label>
             </div>

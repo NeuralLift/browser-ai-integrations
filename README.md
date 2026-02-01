@@ -39,7 +39,7 @@ Backend utama dengan fitur lengkap (WebSocket, Privacy, dll).
 Backend alternatif menggunakan library Rig untuk integrasi AI yang lebih simpel.
 
 1. Masuk ke direktori: `cd backend-rig`
-2. Salin `.env.example` menjadi `.env` dan isi `GOOGLE_API_KEY`.
+2. Salin `.env.example` menjadi `.env` dan isi `GEMINI_API_KEY`.
 3. Jalankan server: `cargo run`.
 4. Lihat `backend-rig/TESTING_CHECKLIST.md` untuk panduan pengujian.
 

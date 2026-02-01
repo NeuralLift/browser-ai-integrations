@@ -1,15 +1,19 @@
 use std::env;
 
 pub struct AppConfig {
-    pub google_api_key: String,
     pub port: u16,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
         dotenvy::dotenv().ok();
+
+        // Validate that GEMINI_API_KEY is set (required by rig gemini client)
+        if env::var("GEMINI_API_KEY").is_err() {
+            panic!("GEMINI_API_KEY environment variable is required");
+        }
+
         Self {
-            google_api_key: env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY required"),
             port: env::var("PORT")
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()

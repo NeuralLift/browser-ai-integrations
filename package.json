@@ -4,6 +4,8 @@
   "private": true,
   "devDependencies": {
     "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1"
   },
@@ -11,7 +13,8 @@
     "prepare": "husky",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "format:rust": "cargo fmt --manifest-path backend/Cargo.toml --all"
+    "format:rust": "cargo fmt --manifest-path backend/Cargo.toml --all",
+    "test": "jest -c tests/extension/jest.config.js"
   },
   "lint-staged": {
     "*.{js,html,css,json,md}": "prettier --write",
