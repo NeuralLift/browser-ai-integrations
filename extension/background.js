@@ -49,7 +49,8 @@ function connectWebSocket() {
           wsSessionId = message.data.session_id;
         } else if (message.type === 'action_request') {
           const { request_id, command } = message.data;
-          const result = await dispatchToActiveTab(command);
+          // Forward action to sidepanel for UI display and execution
+          const result = await forwardActionToSidepanel(command);
           // Send ActionResult back to backend
           const response = JSON.stringify({
             type: 'ActionResult',
@@ -380,6 +381,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Initialize connection when service worker starts
 connectWebSocket();
+
+/**
+ * Forward action to sidepanel for UI display and execution.
+ * Falls back to direct execution if sidepanel is not available.
+ * @param {Object} command The action command from the backend
+ * @returns {Promise<Object>} The ActionResult object
+ */
+async function forwardActionToSidepanel(command) {
+  try {
+    // Try to send to sidepanel first for UI display
+    const result = await chrome.runtime.sendMessage({
+      action: 'propose_action',
+      data: command,
+    });
+    if (result) {
+      return result;
+    }
+  } catch (e) {
+    // Sidepanel might not be open, fall back to direct execution
+    console.log('[Background] Sidepanel not available, executing directly');
+  }
+
+  // Fallback: execute directly without UI
+  return await dispatchToActiveTab(command);
+}
 
 // --- Full Page Screenshot Logic ---
 

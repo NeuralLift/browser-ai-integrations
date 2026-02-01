@@ -1320,6 +1320,20 @@ document.addEventListener('DOMContentLoaded', () => {
     debugModeToggle.addEventListener('click', (e) => e.stopPropagation());
   }
 
+  // SVG Icons for actions
+  const ACTION_ICONS = {
+    navigate: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    click: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>`,
+    type: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h12"/></svg>`,
+    scroll: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`,
+    read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+    search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    action: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+    success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    loading: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  };
+
   // Action Preview & Execution
   function formatAction(action) {
     switch (action.type) {
@@ -1327,43 +1341,43 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
           label: 'Navigasi',
           detail: action.url,
-          icon: '🌐',
+          icon: ACTION_ICONS.navigate,
         };
       case 'click_element':
         return {
           label: 'Klik Elemen',
           detail: `ref: ${action.ref}`,
-          icon: '👆',
+          icon: ACTION_ICONS.click,
         };
       case 'type_text':
         return {
           label: 'Ketik Teks',
           detail: `"${action.text}" → ref: ${action.ref}`,
-          icon: '⌨️',
+          icon: ACTION_ICONS.type,
         };
       case 'scroll_to':
         return {
           label: 'Scroll',
           detail: `posisi (${action.x}, ${action.y})`,
-          icon: '📜',
+          icon: ACTION_ICONS.scroll,
         };
       case 'get_page_content':
         return {
           label: 'Membaca Halaman',
           detail: 'mengambil konten teks...',
-          icon: '📄',
+          icon: ACTION_ICONS.read,
         };
       case 'get_interactive_elements':
         return {
           label: 'Mencari Elemen',
           detail: 'mengambil elemen interaktif...',
-          icon: '🔍',
+          icon: ACTION_ICONS.search,
         };
       default:
         return {
           label: 'Aksi',
           detail: JSON.stringify(action),
-          icon: '⚡',
+          icon: ACTION_ICONS.action,
         };
     }
   }
@@ -1381,7 +1395,11 @@ document.addEventListener('DOMContentLoaded', () => {
           ? 'error'
           : 'executing';
     const statusIcon =
-      status === 'success' ? '✅' : status === 'error' ? '❌' : '⏳';
+      status === 'success'
+        ? ACTION_ICONS.success
+        : status === 'error'
+          ? ACTION_ICONS.error
+          : ACTION_ICONS.loading;
 
     const bubbleDiv = document.createElement('div');
     bubbleDiv.className = `action-status ${statusClass}`;

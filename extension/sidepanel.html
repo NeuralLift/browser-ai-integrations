@@ -1010,8 +1010,25 @@
         justify-content: center;
       }
 
+      .action-status .action-icon svg {
+        width: 18px;
+        height: 18px;
+      }
+
       .action-status.executing .action-icon {
         animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .action-status.executing .action-icon svg {
+        stroke: var(--text-secondary);
+      }
+
+      .action-status.success .action-icon svg {
+        stroke: #22c55e;
+      }
+
+      .action-status.error .action-icon svg {
+        stroke: #ef4444;
       }
 
       @keyframes pulse {
