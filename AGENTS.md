@@ -130,11 +130,11 @@ This project is a browser integration system connecting a Chrome Extension front
 ## 6. Troubleshooting
 
 - **"Image state not clearing"**: Ensure logic handles both text and image message states.
-- **"Connection failed"**: Verify backend is on port 3000 and `GOOGLE_API_KEY` is set.
+- **"Connection failed"**: Verify backend is on port 3000 and `GEMINI_API_KEY` is set.
 - **"Extension not updating"**: Click the "Refresh" icon in `chrome://extensions`.
 - **"CORS Errors"**: Check Axum `tower_http::cors` configuration in `routes.rs`.
 - **"LSP Failures"**: If LSP fails, ensure the correct workspace root is opened.
-- **"Rig Client Error"**: Ensure the `GOOGLE_API_KEY` is valid and has sufficient quota.
+- **"Rig Client Error"**: Ensure the `GEMINI_API_KEY` is valid and has sufficient quota.
 - **"404 Not Found"**: Verify that the route is defined in `routes.rs` and matches the path.
 
 ## 7. AI Integration Best Practices
