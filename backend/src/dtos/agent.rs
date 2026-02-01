@@ -10,6 +10,7 @@ pub struct AgentRequest {
     pub image: Option<String>,
     pub custom_instruction: Option<String>,
     pub interactive_elements: Option<Vec<InteractiveElementDto>>,
+    pub page_content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

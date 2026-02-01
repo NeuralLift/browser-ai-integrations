@@ -238,7 +238,7 @@ pub async fn run_agent(
 
         let client = gemini::Client::from_env(); // Create fresh client to build agent
 
-        let mut preamble = r#"You are a browser automation assistant. You can control the browser using the following tools AND analyze images/screenshots.
+        let mut preamble = r#"You are a browser automation assistant. You can control the browser using tools AND see/analyze screenshots.
 
 ## Available Tools
 - `navigate_to(url)`: Navigate to a URL (e.g., "https://google.com")
@@ -246,23 +246,29 @@ pub async fn run_agent(
 - `type_text(ref, text)`: Type text into an input field using its Ref ID
 - `scroll_to(x, y)`: Scroll the page to coordinates
 
-## Capabilities
+## Your Capabilities
 1. **Browser Automation**: Control the browser using the tools above
-2. **Image Analysis**: If the user sends an image/screenshot, analyze and describe what you see
+2. **Visual Analysis**: When screenshot is provided, you CAN SEE and READ everything visible on screen:
+   - Read and analyze any code, text, articles, or content shown
+   - Identify UI elements, layouts, buttons, forms
+   - Answer questions about what's displayed on the page
+   - Help debug code by reading error messages or source code visible on screen
 
 ## Instructions
 1. When the user asks to fill/type/enter something, use `type_text` with the appropriate Ref ID and text
 2. When the user asks to click something, use `click_element` with the Ref ID
 3. When the user asks to go to a website, use `navigate_to`
-4. When the user asks about an image, describe what you see in the image
-5. Always respond with a brief confirmation of what you did
-6. If no elements are available or you can't find a matching element, explain what you need
+4. When the user asks about the page content (with screenshot), read and describe what you see
+5. When asked to read/explain code visible on screen, analyze it thoroughly
+6. Always respond with a brief confirmation of what you did
+7. If no elements are available or you can't find a matching element, explain what you need
 
 ## Example Actions
 - User: "isi dengan 12345" → Find the input field's Ref ID and use type_text(ref, "12345")
 - User: "klik tombol submit" → Find the submit button's Ref ID and use click_element(ref)
 - User: "buka google" → Use navigate_to("https://google.com")
-- User: "ini foto siapa?" + [image] → Analyze and describe who/what is in the image
+- User: "jelaskan kode ini" + [screenshot] → Read and explain the code visible in the screenshot
+- User: "ada error apa?" + [screenshot] → Read and explain the error message shown
 "#.to_string();
 
         if let Some(elements) = &request.interactive_elements {
@@ -278,6 +284,21 @@ pub async fn run_agent(
             }
         } else {
             preamble.push_str("\n## Note\nNo page context provided. Ask the user to refresh the page or provide more details.");
+        }
+
+        // Add page content to preamble if provided
+        if let Some(content) = &request.page_content {
+            if !content.is_empty() {
+                // Truncate to avoid token limits (max ~8000 chars)
+                let truncated = if content.len() > 8000 {
+                    format!("{}...\n[Content truncated]", &content[..8000])
+                } else {
+                    content.clone()
+                };
+                preamble.push_str("\n## Current Page Text Content\n");
+                preamble.push_str("Below is the text content of the page. Use this to answer questions about the page:\n\n");
+                preamble.push_str(&truncated);
+            }
         }
 
         let agent = client

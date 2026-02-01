@@ -715,6 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Fetch interactive elements if in tool-enabled mode
       let interactiveElements = undefined;
+      let pageContent = undefined;
       if (wsSessionId) {
         try {
           const [tab] = await chrome.tabs.query({
@@ -735,6 +736,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 `[Sidepanel] Sending ${interactiveElements.length} interactive elements`
               );
             }
+
+            try {
+              const contentResponse = await chrome.tabs.sendMessage(tab.id, {
+                action: 'getContent',
+              });
+              if (contentResponse && contentResponse.text) {
+                pageContent = contentResponse.text;
+                console.log(
+                  `[Sidepanel] Sending page content (${pageContent.length} chars)`
+                );
+              }
+            } catch (contentErr) {
+              console.warn(
+                '[Sidepanel] Could not fetch page content:',
+                contentErr
+              );
+            }
           }
         } catch (e) {
           console.error('[Sidepanel] Failed to fetch interactive elements:', e);
@@ -753,6 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
           image: imageToSend || undefined,
           session_id: wsSessionId || undefined,
           interactive_elements: interactiveElements,
+          page_content: pageContent,
         }),
       });
 
@@ -1289,10 +1308,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Debug Mode Logic
   let debugMode = false;
 
-  // Load debug mode state
-  chrome.storage.local.get(['debugMode'], (result) => {
+  // Load debug mode state and apply it
+  chrome.storage.local.get(['debugMode'], async (result) => {
     debugMode = result.debugMode || false;
     if (debugModeToggle) debugModeToggle.checked = debugMode;
+
+    // If debug mode was ON, apply it to the current page
+    if (debugMode) {
+      try {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleDebug',
+            value: true,
+          });
+          console.log('[Sidepanel] Restored debug mode ON for current tab');
+        }
+      } catch (err) {
+        console.error('[Sidepanel] Failed to restore debug mode:', err);
+      }
+    }
   });
 
   if (debugModeToggle) {
