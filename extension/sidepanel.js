@@ -421,26 +421,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (response && response.sessionId) {
           wsSessionId = response.sessionId;
-          console.log('[Sidepanel] Got session ID:', wsSessionId);
           return true;
         }
         // Session ID not available yet, wait and retry
         if (attempt < retries) {
-          console.log(
-            `[Sidepanel] Session ID not ready, retrying (${attempt}/${retries})...`
-          );
           await new Promise((r) => setTimeout(r, delay * attempt));
         }
       } catch (e) {
-        console.error('[Sidepanel] Failed to get session ID:', e);
         if (attempt < retries) {
           await new Promise((r) => setTimeout(r, delay * attempt));
         }
       }
     }
-    console.warn(
-      '[Sidepanel] Could not get session ID after retries - tools will be disabled'
-    );
+    console.warn('[Sidepanel] Tools disabled - no session ID');
     return false;
   }
 
@@ -709,15 +702,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Handle screenshot toggle
       if (screenshotToggle.checked) {
         const fullPage = screenshotModeToggle.checked;
-        console.log(
-          `[Sidepanel] Capturing ${fullPage ? 'full page' : 'viewport'} screenshot...`
-        );
         await chrome.runtime.sendMessage({
           action: 'forceContextUpdate',
           fullPage,
         });
       } else {
-        console.log('[Sidepanel] Skipping screenshot capture (toggle OFF)');
         await chrome.runtime.sendMessage({
           action: 'updateContextNoScreenshot',
         });
@@ -734,15 +723,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Ensure we have session ID for tool-enabled mode
       if (!wsSessionId) {
-        console.warn(
-          '[Sidepanel] No session ID yet, attempting to fetch again...'
-        );
         await fetchWsSessionId();
       }
-      console.log(
-        '[Sidepanel] Sending request with session_id:',
-        wsSessionId || 'NONE (will use legacy mode)'
-      );
 
       const response = await fetch('http://localhost:3000/agent/run', {
         method: 'POST',
@@ -919,8 +901,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Check backend connection and get current tab info
   async function initialize() {
-    console.log('[Sidepanel] Initializing...');
-
     // Check backend health
     await checkConnectionStatus();
 
@@ -999,7 +979,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Settings Modal
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
-      console.log('Settings button clicked');
       try {
         const settings = SettingsManager.getSettings();
         globalInstructionInput.value = settings.globalInstruction || '';
@@ -1014,8 +993,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Error opening settings:', e);
       }
     });
-  } else {
-    console.error('Settings button not found');
   }
 
   closeSettingsBtn.addEventListener('click', () => closeModal(settingsModal));
@@ -1309,10 +1286,9 @@ document.addEventListener('DOMContentLoaded', () => {
             action: 'toggleDebug',
             value: true,
           });
-          console.log('[Sidepanel] Restored debug mode ON for current tab');
         }
-      } catch (err) {
-        console.error('[Sidepanel] Failed to restore debug mode:', err);
+      } catch {
+        // Content script may not be loaded yet
       }
     }
   });
@@ -1334,8 +1310,8 @@ document.addEventListener('DOMContentLoaded', () => {
             value: debugMode,
           });
         }
-      } catch (err) {
-        console.error('[Sidepanel] Failed to toggle debug mode:', err);
+      } catch {
+        // Content script may not be loaded
       }
 
       e.stopPropagation();
@@ -1348,23 +1324,84 @@ document.addEventListener('DOMContentLoaded', () => {
   function formatAction(action) {
     switch (action.type) {
       case 'navigate_to':
-        return `Navigate to ${action.url}`;
+        return {
+          label: 'Navigasi',
+          detail: action.url,
+          icon: '🌐',
+        };
       case 'click_element':
-        return `Click element [${action.ref}]`;
+        return {
+          label: 'Klik Elemen',
+          detail: `ref: ${action.ref}`,
+          icon: '👆',
+        };
       case 'type_text':
-        return `Type "${action.text}" into element [${action.ref}]`;
+        return {
+          label: 'Ketik Teks',
+          detail: `"${action.text}" → ref: ${action.ref}`,
+          icon: '⌨️',
+        };
       case 'scroll_to':
-        return `Scroll to (${action.x}, ${action.y})`;
+        return {
+          label: 'Scroll',
+          detail: `posisi (${action.x}, ${action.y})`,
+          icon: '📜',
+        };
       case 'get_page_content':
-        return 'Fetching page content';
+        return {
+          label: 'Membaca Halaman',
+          detail: 'mengambil konten teks...',
+          icon: '📄',
+        };
       case 'get_interactive_elements':
-        return 'Fetching interactive elements';
+        return {
+          label: 'Mencari Elemen',
+          detail: 'mengambil elemen interaktif...',
+          icon: '🔍',
+        };
       default:
-        return JSON.stringify(action);
+        return {
+          label: 'Aksi',
+          detail: JSON.stringify(action),
+          icon: '⚡',
+        };
     }
   }
 
+  // Render action status message with styled bubble
+  function renderActionStatus(action, status = 'executing') {
+    const formatted = formatAction(action);
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+
+    const statusClass =
+      status === 'success'
+        ? 'success'
+        : status === 'error'
+          ? 'error'
+          : 'executing';
+    const statusIcon =
+      status === 'success' ? '✅' : status === 'error' ? '❌' : '⏳';
+
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = `action-status ${statusClass}`;
+    bubbleDiv.innerHTML = `
+      <span class="action-icon">${status === 'executing' ? formatted.icon : statusIcon}</span>
+      <div class="action-content">
+        <div class="action-type">${formatted.label}</div>
+        <div class="action-detail">${formatted.detail}</div>
+      </div>
+    `;
+
+    messageDiv.appendChild(bubbleDiv);
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    return messageDiv;
+  }
+
   function showActionPreview(action, onApprove, onCancel) {
+    const formatted = formatAction(action);
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
 
@@ -1375,8 +1412,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bubbleDiv.innerHTML = `
       <div style="font-weight: 600; margin-bottom: 8px;">⚠️ Konfirmasi Aksi</div>
-      <div style="margin-bottom: 12px; font-family: monospace; font-size: 0.9em;">
-        ${formatAction(action)}
+      <div class="action-status executing" style="margin-bottom: 12px;">
+        <span class="action-icon">${formatted.icon}</span>
+        <div class="action-content">
+          <div class="action-type">${formatted.label}</div>
+          <div class="action-detail">${formatted.detail}</div>
+        </div>
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="primary-btn approve-btn" style="flex: 1;">Setuju</button>
@@ -1409,13 +1450,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function performAction(action) {
-    // Show status: Executing...
-    const statusMsg = {
-      role: 'assistant',
-      text: `*Menjalankan aksi:* ${formatAction(action)}...`,
-      timestamp: Date.now(),
-    };
-    renderMessage(statusMsg);
+    // Show executing status
+    const statusMessage = renderActionStatus(action, 'executing');
 
     try {
       const [tab] = await chrome.tabs.query({
@@ -1444,26 +1480,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Update status
+      // Update status message
       if (response && response.success) {
-        const successMsg = {
-          role: 'assistant',
-          text: `✅ **Berhasil:** ${formatAction(action)}`,
-          timestamp: Date.now(),
-        };
-        renderMessage(successMsg);
+        statusMessage.remove();
+        renderActionStatus(action, 'success');
         return response;
       } else {
-        throw new Error(response.error || 'Unknown error');
+        throw new Error(response?.error || 'Unknown error');
       }
     } catch (e) {
       console.error('Action failed:', e);
-      const errorMsg = {
-        role: 'assistant',
-        text: `❌ **Gagal:** ${e.message}`,
-        timestamp: Date.now(),
-      };
-      renderMessage(errorMsg);
+      statusMessage.remove();
+      renderActionStatus({ ...action, errorMessage: e.message }, 'error');
       return { success: false, error: e.message };
     }
   }

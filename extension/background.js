@@ -25,13 +25,11 @@ function connectWebSocket() {
     ws = new WebSocket(BACKEND_WS_URL);
 
     ws.onopen = () => {
-      console.log('[Background] WebSocket connected');
       isConnected = true;
       startContextUpdates();
     };
 
     ws.onclose = () => {
-      console.log('[Background] WebSocket disconnected');
       isConnected = false;
       wsSessionId = null;
       stopContextUpdates();
@@ -44,20 +42,13 @@ function connectWebSocket() {
     };
 
     ws.onmessage = async (event) => {
-      console.log('[Background] Message received:', event.data);
       try {
         const message = JSON.parse(event.data);
 
         if (message.type === 'session_init') {
           wsSessionId = message.data.session_id;
-          console.log('[Background] Session initialized:', wsSessionId);
         } else if (message.type === 'action_request') {
           const { request_id, command } = message.data;
-          console.log(
-            '[Background] ActionRequest received:',
-            request_id,
-            command
-          );
           const result = await dispatchToActiveTab(command);
           // Send ActionResult back to backend
           const response = JSON.stringify({
@@ -70,11 +61,6 @@ function connectWebSocket() {
             },
           });
           ws.send(response);
-          console.log(
-            '[Background] ActionResult sent:',
-            request_id,
-            result.success
-          );
         }
       } catch (e) {
         console.error('[Background] Error processing message:', e);
@@ -132,7 +118,6 @@ async function dispatchToActiveTab(command) {
         });
       } catch (e) {
         // Content script might not be loaded, try direct navigation via tabs API
-        console.log('[Background] Using tabs.update for navigation');
         await chrome.tabs.update(tab.id, { url: command.url });
       }
 
@@ -188,10 +173,6 @@ async function sendToContentScript(tabId, command, retries = 2) {
         result || { success: false, error: 'No response from content script' }
       );
     } catch (e) {
-      console.log(
-        `[Background] Content script not responding (attempt ${attempt + 1}/${retries + 1}), injecting...`
-      );
-
       try {
         await chrome.scripting.executeScript({
           target: { tabId: tabId },
@@ -242,7 +223,6 @@ async function captureAndSendContext(options = {}) {
 
     // Skip if same tab and URL (unless forced)
     if (!forceUpdate && tab.id === lastTabId && tab.url === lastUrl) {
-      console.log('[Background] Same tab/URL, skipping update');
       return;
     }
 
@@ -257,7 +237,6 @@ async function captureAndSendContext(options = {}) {
       });
       pageContent = response;
     } catch (e) {
-      console.log('[Background] Could not get content from tab:', e.message);
       // Try to inject content script if not present
       try {
         await chrome.scripting.executeScript({
@@ -269,11 +248,8 @@ async function captureAndSendContext(options = {}) {
           action: 'getContext',
         });
         pageContent = response;
-      } catch (injectError) {
-        console.log(
-          '[Background] Could not inject content script:',
-          injectError.message
-        );
+      } catch {
+        // Could not inject content script
       }
     }
 
@@ -284,8 +260,8 @@ async function captureAndSendContext(options = {}) {
         // Full page mode - try to capture entire page
         try {
           screenshot = await captureFullPage(tab.id);
-        } catch (e) {
-          console.log('[Background] Full page capture failed:', e.message);
+        } catch {
+          // Full page capture failed, will try viewport
         }
       }
 
@@ -299,15 +275,9 @@ async function captureAndSendContext(options = {}) {
               format: 'jpeg',
               quality: 50,
             });
-            if (screenshot) {
-              console.log('[Background] Viewport screenshot captured');
-              break;
-            }
-          } catch (e2) {
-            console.log(
-              `[Background] Viewport capture attempt ${attempt + 1} failed:`,
-              e2.message
-            );
+            if (screenshot) break;
+          } catch {
+            // Retry
           }
         }
       }
@@ -328,14 +298,6 @@ async function captureAndSendContext(options = {}) {
 
     // Send to backend
     ws.send(JSON.stringify(sanitizedContext));
-    console.log(
-      '[Background] Context sent:',
-      sanitizedContext.url,
-      'Content length:',
-      sanitizedContext.content?.length || 0,
-      'Screenshot:',
-      !!screenshot
-    );
   } catch (error) {
     console.error('[Background] Error capturing context:', error);
   }
@@ -364,7 +326,6 @@ function sanitizeContext(context) {
 
 // Listen for tab activation (switching tabs)
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  console.log('[Background] Tab activated:', activeInfo.tabId);
   // Update context WITHOUT screenshot when switching tabs
   setTimeout(
     () => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }),
@@ -375,7 +336,6 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 // Listen for tab URL changes (navigation within tab)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.active) {
-    console.log('[Background] Tab updated:', tab.url);
     // Update context WITHOUT screenshot when page loads
     setTimeout(
       () => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }),
@@ -387,7 +347,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Listen for window focus changes
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
-    console.log('[Background] Window focused:', windowId);
     // Update context WITHOUT screenshot when window focused
     setTimeout(
       () => captureAndSendContext({ forceUpdate: true, skipScreenshot: true }),
@@ -421,8 +380,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Initialize connection when service worker starts
 connectWebSocket();
-
-console.log('[Background] Browser AI Assistant service worker started');
 
 // --- Full Page Screenshot Logic ---
 
@@ -459,24 +416,21 @@ async function captureFullPage(tabId) {
     originalScroll = await chrome.tabs.sendMessage(tabId, {
       action: 'getScrollPosition',
     });
-  } catch (e) {
-    console.log('[Background] Could not get original scroll position');
+  } catch {
+    // Could not get original scroll position
   }
 
   let metrics = null;
   try {
     metrics = await chrome.tabs.sendMessage(tabId, { action: 'getMetrics' });
-  } catch (e) {
-    console.log('[Background] Could not get metrics, fallback to viewport');
+  } catch {
     return null;
   }
 
   if (!metrics) return null;
 
   if (metrics.height > 10000) {
-    console.warn(
-      '[Background] Page too long for full screenshot (>10k px), fallback to viewport'
-    );
+    console.warn('[Background] Page too long (>10k px), using viewport only');
     return null;
   }
 
@@ -539,8 +493,8 @@ async function captureFullPage(tabId) {
         x: restoreX,
         y: restoreY,
       });
-    } catch (e) {
-      console.log('[Background] Could not restore scroll position');
+    } catch {
+      // Could not restore scroll position
     }
   }
 }

@@ -150,11 +150,10 @@ function extractPageContent(maxLength = MAX_TEXT_LENGTH) {
         const siteContent = extractor();
         if (siteContent) {
           text = siteContent;
-          console.log('[Content] Used site-specific extractor for:', site);
           break;
         }
-      } catch (e) {
-        console.error('[Content] Site extractor error:', e);
+      } catch {
+        // Site extractor error, will use generic
       }
     }
   }
@@ -162,15 +161,12 @@ function extractPageContent(maxLength = MAX_TEXT_LENGTH) {
   // Fallback to generic extraction
   if (!text) {
     text = extractGenericContent();
-    console.log('[Content] Used generic extractor');
   }
 
   // Truncate if too long
   if (text.length > maxLength) {
     text = text.substring(0, maxLength) + '... [truncated]';
   }
-
-  console.log('[Content] Extracted text length:', text.length);
 
   return {
     text: text || '',
@@ -509,8 +505,6 @@ function showDebugBadges() {
     debugBadgeContainer.appendChild(badge);
   });
 
-  console.log('[Content] Debug badges shown:', refToElementMap.size);
-
   // Setup real-time listeners if not already setup
   setupDebugListeners();
 }
@@ -524,7 +518,6 @@ function hideDebugBadges(keepActive = false) {
   if (!keepActive) {
     isDebugModeActive = false;
     cleanupDebugListeners();
-    console.log('[Content] Debug badges hidden');
   }
 }
 
@@ -578,8 +571,6 @@ function setupDebugListeners() {
     attributes: true,
     attributeFilter: ['style', 'class', 'hidden', 'disabled'],
   });
-
-  console.log('[Content] Debug listeners setup for real-time updates');
 }
 
 /**
@@ -682,13 +673,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const maxLength = message.maxLength || 15000;
       const content = extractPageContent(maxLength);
-      console.log(
-        '[Content] Sending context, text length:',
-        content.text.length
-      );
       sendResponse(content);
     } catch (e) {
-      console.error('[Content] Error extracting content:', e);
       sendResponse({
         text: '',
         title: document.title,
@@ -699,13 +685,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const limit = message.limit || 300;
       const snapshot = generateSnapshot(limit);
-      console.log(
-        '[Content] Sending snapshot, elements found:',
-        snapshot.tree.length
-      );
       sendResponse(snapshot);
     } catch (e) {
-      console.error('[Content] Error generating snapshot:', e);
       sendResponse({ tree: [] });
     }
   } else if (message.action === 'getMetrics') {
@@ -740,8 +721,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   return true;
 });
-
-console.log(
-  '[Content] Browser AI Assistant content script loaded on:',
-  window.location.hostname
-);
