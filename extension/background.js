@@ -1,6 +1,6 @@
 // Background service worker for Browser AI Assistant
 
-const BACKEND_WS_URL = 'ws://localhost:3000/ws';
+const BACKEND_WS_URL = 'wss://deafening-dyna-malas-eae50695.koyeb.app/ws';
 const CONTEXT_UPDATE_INTERVAL = 5000; // 5 seconds
 
 let ws = null;

@@ -756,20 +756,23 @@ document.addEventListener('DOMContentLoaded', () => {
         await fetchWsSessionId();
       }
 
-      const response = await fetch('http://localhost:3000/agent/run', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: text,
-          stream: true, // Always stream now
-          custom_instruction: instruction || undefined,
-          image: imageToSend || undefined,
-          session_id: wsSessionId || undefined,
-          history: getFormattedHistory(),
-        }),
-      });
+      const response = await fetch(
+        'https://deafening-dyna-malas-eae50695.koyeb.app/agent/run',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: text,
+            stream: true, // Always stream now
+            custom_instruction: instruction || undefined,
+            image: imageToSend || undefined,
+            session_id: wsSessionId || undefined,
+            history: getFormattedHistory(),
+          }),
+        }
+      );
 
       if (!response.ok) {
         hideTyping();
@@ -907,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let errorText;
       if (isNetworkError) {
         errorText =
-          '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan di `localhost:3000`';
+          '**Error:** Tidak bisa terhubung ke backend. Pastikan server berjalan.';
       } else if (
         error.message.includes('empty') ||
         error.message.includes('no message')
@@ -968,10 +971,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check connection status
   async function checkConnectionStatus() {
     try {
-      const response = await fetch('http://localhost:3000/health', {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000), // 3 second timeout
-      });
+      const response = await fetch(
+        'https://deafening-dyna-malas-eae50695.koyeb.app/health',
+        {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000), // 3 second timeout
+        }
+      );
       updateStatus(response.ok);
     } catch {
       updateStatus(false);
