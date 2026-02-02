@@ -39,13 +39,16 @@ async function sendMessage() {
   sendBtn.disabled = true;
 
   try {
-    const response = await fetch('http://localhost:3000/agent/run', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message, stream: true }),
-    });
+    const response = await fetch(
+      'https://deafening-dyna-malas-eae50695.koyeb.app/agent/run',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message, stream: true }),
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to get response');
@@ -92,7 +95,9 @@ messageInput.addEventListener('keypress', (e) => {
 // Check backend connection on load
 async function checkConnection() {
   try {
-    const response = await fetch('http://localhost:3000/health');
+    const response = await fetch(
+      'https://deafening-dyna-malas-eae50695.koyeb.app/health'
+    );
     updateStatus(response.ok);
   } catch {
     updateStatus(false);
