@@ -11,9 +11,6 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Enable edition 2024 feature
-ENV RUSTFLAGS="--edition=2024"
-
 # Copy manifests first for dependency caching
 # Note: Dockerfile is in backend/, but build context is repo root
 COPY backend/Cargo.toml backend/Cargo.lock* ./
