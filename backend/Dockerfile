@@ -1,7 +1,7 @@
 # =============================================================================
 # Stage 1: Build Stage (using nightly for edition 2024)
 # =============================================================================
-FROM rust:nightly-slim-bookworm AS builder
+FROM rustlang/rust:nightly-bookworm-slim AS builder
 
 WORKDIR /app
 
