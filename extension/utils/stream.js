@@ -14,7 +14,6 @@ async function* readSSEStream(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
-  let currentEvent = 'data';
 
   try {
     while (true) {
@@ -29,53 +28,85 @@ async function* readSSEStream(response) {
       // TextDecoder with {stream: true} correctly handles multibyte character splitting
       buffer += decoder.decode(value, { stream: true });
 
-      // Split the buffer by double newlines to get potential SSE blocks
-      // However, we need to process line by line to handle 'event:' fields
-      const lines = buffer.split(/\r?\n/);
+      // SSE events are separated by double newlines (\n\n)
+      // Split by double newline to get complete events
+      const events = buffer.split(/\r?\n\r?\n/);
 
-      // Keep the last (potentially incomplete) line in the buffer
-      buffer = lines.pop() || '';
+      // Keep the last (potentially incomplete) event in the buffer
+      buffer = events.pop() || '';
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      for (const eventBlock of events) {
+        if (!eventBlock.trim()) continue;
 
-        if (line.startsWith('event:')) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith('data:')) {
-          let dataValue = line.slice(5);
-          // Standard SSE: data: <optional space><content>
-          if (dataValue.startsWith(' ')) {
-            dataValue = dataValue.slice(1);
+        // Parse the event block
+        let currentEvent = 'data';
+        let dataLines = [];
+
+        const lines = eventBlock.split(/\r?\n/);
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            let dataValue = line.slice(5);
+            // Standard SSE: data: <optional space><content>
+            if (dataValue.startsWith(' ')) {
+              dataValue = dataValue.slice(1);
+            }
+            dataLines.push(dataValue);
           }
+        }
 
-          if (dataValue.trim() === '[DONE]') {
-            yield { type: 'done', value: '' };
-            return;
-          }
+        // SSE spec: multiple data: lines should be joined with \n
+        const fullData = dataLines.join('\n');
 
-          if (currentEvent === 'error') {
-            yield { type: 'error', value: dataValue };
-          } else {
-            yield { type: 'data', value: dataValue };
-          }
+        if (fullData.trim() === '[DONE]') {
+          yield { type: 'done', value: '' };
+          return;
+        }
+
+        if (currentEvent === 'error') {
+          yield { type: 'error', value: fullData };
+        } else if (currentEvent === 'usage') {
+          yield { type: 'usage', value: fullData };
+        } else if (currentEvent === 'tool') {
+          yield { type: 'tool', value: fullData };
+        } else {
+          yield { type: 'data', value: fullData };
         }
       }
     }
 
-    // Flush remaining buffer if it looks like a complete line
+    // Flush remaining buffer if it looks like a complete event
     if (buffer.trim()) {
-      if (buffer.startsWith('data:')) {
-        let dataValue = buffer.slice(5);
-        if (dataValue.startsWith(' ')) {
-          dataValue = dataValue.slice(1);
-        }
+      let currentEvent = 'data';
+      let dataLines = [];
 
-        if (dataValue.trim() === '[DONE]') {
+      const lines = buffer.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          let dataValue = line.slice(5);
+          if (dataValue.startsWith(' ')) {
+            dataValue = dataValue.slice(1);
+          }
+          dataLines.push(dataValue);
+        }
+      }
+
+      if (dataLines.length > 0) {
+        const fullData = dataLines.join('\n');
+
+        if (fullData.trim() === '[DONE]') {
           yield { type: 'done', value: '' };
         } else if (currentEvent === 'error') {
-          yield { type: 'error', value: dataValue };
+          yield { type: 'error', value: fullData };
+        } else if (currentEvent === 'usage') {
+          yield { type: 'usage', value: fullData };
+        } else if (currentEvent === 'tool') {
+          yield { type: 'tool', value: fullData };
         } else {
-          yield { type: 'data', value: dataValue };
+          yield { type: 'data', value: fullData };
         }
       }
     }

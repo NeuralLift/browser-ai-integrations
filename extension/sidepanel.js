@@ -11,16 +11,23 @@ function parseMarkdown(text) {
   }
 
   // Configure marked if not already configured
-  if (!window.markedConfigured && typeof hljs !== 'undefined') {
-    marked.setOptions({
-      highlight: function (code, lang) {
+  if (!window.markedConfigured) {
+    // Base options - always set these
+    const options = {
+      breaks: true, // Convert \n to <br>
+      gfm: true, // GitHub Flavored Markdown
+    };
+
+    // Add syntax highlighting if hljs is available
+    if (typeof hljs !== 'undefined') {
+      options.highlight = function (code, lang) {
         const language = hljs.getLanguage(lang) ? lang : 'plaintext';
         return hljs.highlight(code, { language }).value;
-      },
-      langPrefix: 'hljs language-',
-      breaks: true,
-      gfm: true,
-    });
+      };
+      options.langPrefix = 'hljs language-';
+    }
+
+    marked.setOptions(options);
     window.markedConfigured = true;
   }
 
@@ -654,6 +661,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typing) typing.remove();
   }
 
+  // Get formatted history for backend (last 10 messages, text-only)
+  function getFormattedHistory() {
+    if (!currentSession || !currentSession.messages) {
+      return [];
+    }
+
+    // Get all messages except potential "in-progress" ones
+    const messages = currentSession.messages;
+
+    // Take last 10 messages
+    const recentMessages = messages.slice(-10);
+
+    // Map to backend format, stripping images
+    return recentMessages
+      .map((msg) => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.image
+          ? `[Image uploaded] ${msg.text || ''}`.trim()
+          : msg.text || '',
+      }))
+      .filter((msg) => msg.content.length > 0);
+  }
+
   // Send message to backend
   async function sendMessage(messageText = null) {
     let text = messageText || messageInput.value.trim();
@@ -733,11 +763,11 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         body: JSON.stringify({
           query: text,
-          stream: !wsSessionId, // Don't request stream when using tools
+          stream: true, // Always stream now
           custom_instruction: instruction || undefined,
           image: imageToSend || undefined,
           session_id: wsSessionId || undefined,
-          // interactive_elements and page_content removed - lazy fetching via tools
+          history: getFormattedHistory(),
         }),
       });
 
@@ -747,99 +777,121 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(errorText || 'Failed to get response');
       }
 
-      // Check Content-Type to determine response format
-      const contentType = response.headers.get('Content-Type') || '';
-      const isJsonResponse = contentType.includes('application/json');
+      // All responses are SSE streams (readSSEStream is always available)
+      let fullText = '';
+      let bubbleDiv = null;
+      let renderTimeout = null;
+      let isFirstToken = true;
+      let tokenUsage = null;
 
-      // Handle JSON response (tool-enabled mode)
-      if (isJsonResponse) {
-        hideTyping();
-        const data = await response.json();
+      for await (const event of window.readSSEStream(response)) {
+        if (event.type === 'data') {
+          if (isFirstToken) {
+            hideTyping();
+            // Create assistant bubble manually to allow streaming updates
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'bubble';
+            messageDiv.appendChild(bubbleDiv);
+            chatContainer.appendChild(messageDiv);
+            isFirstToken = false;
+          }
 
-        const assistantMsg = {
-          role: 'assistant',
-          text: data.response || 'Tidak ada respons',
-          timestamp: Date.now(),
-          tokens: {
-            prompt: data.prompt_tokens,
-            response: data.response_tokens,
-            total: data.total_tokens,
-          },
-        };
+          fullText += event.value;
 
-        renderMessage(assistantMsg);
-        SessionManager.addMessageToSession(currentSession.id, assistantMsg);
-        updateStatus(true);
-      } else if (window.readSSEStream) {
-        let fullText = '';
-        let bubbleDiv = null;
-        let renderTimeout = null;
-        let isFirstToken = true;
-
-        for await (const event of window.readSSEStream(response)) {
-          if (event.type === 'data') {
-            if (isFirstToken) {
-              hideTyping();
-              // Create assistant bubble manually to allow streaming updates
-              const messageDiv = document.createElement('div');
-              messageDiv.className = 'message assistant';
-              bubbleDiv = document.createElement('div');
-              bubbleDiv.className = 'bubble';
-              messageDiv.appendChild(bubbleDiv);
-              chatContainer.appendChild(messageDiv);
-              isFirstToken = false;
-            }
-
-            fullText += event.value;
-
-            // Debounce rendering
-            clearTimeout(renderTimeout);
-            renderTimeout = setTimeout(() => {
-              if (bubbleDiv) {
-                updateAssistantBubble(bubbleDiv, fullText);
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-              }
-            }, 100);
-          } else if (event.type === 'error') {
-            console.error('Stream error:', event.value);
-            // Optional: Show error in bubble?
-          } else if (event.type === 'done') {
-            clearTimeout(renderTimeout);
-            if (!bubbleDiv) {
-              hideTyping(); // In case no data received
-            } else {
+          // Debounce rendering
+          clearTimeout(renderTimeout);
+          renderTimeout = setTimeout(() => {
+            if (bubbleDiv) {
               updateAssistantBubble(bubbleDiv, fullText);
               chatContainer.scrollTop = chatContainer.scrollHeight;
             }
+          }, 100);
+        } else if (event.type === 'tool') {
+          // Tool call notification from backend
+          try {
+            const toolInfo = JSON.parse(event.value);
+            console.log('[Tool]', toolInfo.name, toolInfo.status);
 
-            const assistantMsg = {
-              role: 'assistant',
-              text: fullText || 'Tidak ada respons',
-              timestamp: Date.now(),
-            };
-            SessionManager.addMessageToSession(currentSession.id, assistantMsg);
-            updateStatus(true);
+            // Show tool indicator in the typing area or create a status element
+            if (toolInfo.status === 'calling' && toolInfo.name) {
+              // Update typing indicator to show tool name
+              const typingEl = document.getElementById('typing-indicator');
+              if (typingEl) {
+                const toolLabel = typingEl.querySelector('.tool-label');
+                if (toolLabel) {
+                  toolLabel.textContent = `🔧 ${toolInfo.name}`;
+                } else {
+                  const newLabel = document.createElement('span');
+                  newLabel.className = 'tool-label';
+                  newLabel.style.fontSize = '11px';
+                  newLabel.style.color = 'var(--text-secondary)';
+                  newLabel.style.marginLeft = '8px';
+                  newLabel.textContent = `🔧 ${toolInfo.name}`;
+                  typingEl.appendChild(newLabel);
+                }
+              }
+            } else if (toolInfo.status === 'completed') {
+              // Remove tool label when done
+              const typingEl = document.getElementById('typing-indicator');
+              if (typingEl) {
+                const toolLabel = typingEl.querySelector('.tool-label');
+                if (toolLabel) toolLabel.remove();
+              }
+            }
+          } catch (e) {
+            console.log('[Tool]', event.value);
           }
+        } else if (event.type === 'usage') {
+          // Parse token usage from backend
+          try {
+            const usage = JSON.parse(event.value);
+            tokenUsage = {
+              prompt: usage.input_tokens,
+              response: usage.output_tokens,
+              total: usage.total_tokens,
+            };
+          } catch (e) {
+            console.warn('Failed to parse token usage:', e);
+          }
+        } else if (event.type === 'error') {
+          console.error('Stream error:', event.value);
+          // Show error in bubble if we have one
+          if (bubbleDiv) {
+            fullText += `\n\n⚠️ ${event.value}`;
+            updateAssistantBubble(bubbleDiv, fullText);
+          }
+        } else if (event.type === 'done') {
+          clearTimeout(renderTimeout);
+          if (!bubbleDiv) {
+            hideTyping(); // In case no data received
+          } else {
+            updateAssistantBubble(bubbleDiv, fullText);
+
+            // Add token usage display if available
+            if (tokenUsage) {
+              const tokenDiv = document.createElement('div');
+              tokenDiv.style.fontSize = '10px';
+              tokenDiv.style.color = 'var(--text-muted)';
+              tokenDiv.style.marginTop = '4px';
+              tokenDiv.style.textAlign = 'right';
+              tokenDiv.textContent = `Tokens: ${tokenUsage.prompt || 0} in / ${tokenUsage.response || 0} out`;
+              bubbleDiv.appendChild(tokenDiv);
+            }
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+          }
+
+          const assistantMsg = {
+            role: 'assistant',
+            text: fullText || 'Tidak ada respons',
+            timestamp: Date.now(),
+            tokens: tokenUsage,
+          };
+          SessionManager.addMessageToSession(currentSession.id, assistantMsg);
+          updateStatus(true);
         }
-      } else {
-        // Fallback for non-streaming
-        hideTyping();
-        const data = await response.json();
-
-        const assistantMsg = {
-          role: 'assistant',
-          text: data.response || 'Tidak ada respons',
-          timestamp: Date.now(),
-          tokens: {
-            prompt: data.prompt_tokens,
-            response: data.response_tokens,
-            total: data.total_tokens,
-          },
-        };
-
-        renderMessage(assistantMsg);
-        SessionManager.addMessageToSession(currentSession.id, assistantMsg);
-        updateStatus(true);
       }
     } catch (error) {
       hideTyping();

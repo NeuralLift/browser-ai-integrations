@@ -11,6 +11,13 @@ pub struct AgentRequest {
     pub custom_instruction: Option<String>,
     pub interactive_elements: Option<Vec<InteractiveElementDto>>,
     pub page_content: Option<String>,
+    pub history: Option<Vec<ChatMessageDto>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatMessageDto {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

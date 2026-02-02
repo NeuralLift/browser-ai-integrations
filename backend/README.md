@@ -53,32 +53,45 @@ Memastikan server berjalan dengan baik.
   }
   ```
 
-### 2. Chat API
+### 2. Agent Run (SSE Streaming)
 
-Mengirim pesan ke AI Gemini.
+Mengirim pesan ke AI Gemini dengan respons streaming (Server-Sent Events).
 
-- **URL:** `POST /api/chat`
+- **URL:** `POST /agent/run`
 - **Request Body:**
   ```json
   {
     "message": "Halo, siapa kamu?",
     "custom_instruction": "Jawab dengan singkat",
-    "image": null
+    "image": null,
+    "stream": true,
+    "session_id": "optional-websocket-session-id",
+    "history": []
   }
   ```
-- **Response Body:**
-  ```json
-  {
-    "response": "Saya adalah asisten AI..."
-  }
+- **Response:** Server-Sent Events stream dengan format:
   ```
+  data: token1
+  data: token2
+  ...
+  event: usage
+  data: {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150}
+  data: [DONE]
+  ```
+
+### 3. WebSocket (Tool Execution)
+
+WebSocket endpoint untuk eksekusi tools browser.
+
+- **URL:** `GET /ws`
+- **Protocol:** WebSocket dengan JSON messages
 
 ## Pengujian dengan Curl
 
 Anda dapat mengetes API secara manual menggunakan curl:
 
 ```bash
-curl -X POST http://localhost:3000/api/chat \
+curl -X POST http://localhost:3000/agent/run \
   -H "Content-Type: application/json" \
-  -d '{"message": "Tes koneksi", "custom_instruction": null, "image": null}'
+  -d '{"message": "Tes koneksi", "stream": true}'
 ```

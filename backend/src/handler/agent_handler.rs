@@ -9,262 +9,23 @@ use axum::{
 };
 use futures::StreamExt;
 use rig::OneOrMany;
-use rig::client::{CompletionClient, ProviderClient}; // Added both
-use rig::completion::{Prompt, ToolDefinition};
-use rig::message::{ImageMediaType, Message, UserContent};
+use rig::agent::MultiTurnStreamItem;
+use rig::client::{CompletionClient, ProviderClient};
+use rig::completion::GetTokenUsage;
+use rig::message::{AssistantContent, ImageMediaType, Message, UserContent};
+use rig::streaming::{StreamedAssistantContent, StreamingChat};
+
 use rig::providers::gemini;
-use rig::tool::Tool;
+
+use crate::tools::websocket::{
+    WsClickTool, WsGetInteractiveElementsTool, WsGetPageContentTool, WsNavigateTool, WsScrollTool,
+    WsTypeTool,
+};
 use std::sync::Arc;
-use tokio::sync::oneshot;
-use tokio::time::{Duration, timeout};
-use uuid::Uuid;
 
 use crate::dtos::AgentRequest;
 use crate::models::ChatResponse;
-use crate::models::ws::{ActionCommand, WsMessage};
 use crate::state::AppState;
-use crate::tools::browser::{
-    ClickArgs, ClickTool, GetInteractiveElementsArgs, GetInteractiveElementsTool,
-    GetPageContentArgs, GetPageContentTool, NavigateArgs, NavigateTool, ScrollArgs, ScrollTool,
-    TypeArgs, TypeTool,
-};
-
-// --- Error Type ---
-#[derive(Debug)]
-struct ToolError(String);
-
-impl std::fmt::Display for ToolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for ToolError {}
-
-// --- Tool Implementations ---
-
-struct WsNavigateTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsNavigateTool {
-    const NAME: &'static str = NavigateTool::NAME;
-    type Error = ToolError; // Changed from String
-    type Args = NavigateArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        NavigateTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Validate URL - reject system/restricted URLs
-        let url_lower = args.url.to_lowercase();
-        if url_lower.starts_with("chrome://")
-            || url_lower.starts_with("about:")
-            || url_lower.starts_with("file://")
-        {
-            return Err(ToolError(
-                "Navigation to system pages (chrome://, about://, file://) is not allowed".into(),
-            ));
-        }
-
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::NavigateTo { url: args.url },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-struct WsClickTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsClickTool {
-    const NAME: &'static str = ClickTool::NAME;
-    type Error = ToolError;
-    type Args = ClickArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        ClickTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::ClickElement {
-                ref_id: args.ref_id,
-            },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-struct WsTypeTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsTypeTool {
-    const NAME: &'static str = TypeTool::NAME;
-    type Error = ToolError;
-    type Args = TypeArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        TypeTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::TypeText {
-                ref_id: args.ref_id,
-                text: args.text,
-            },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-struct WsScrollTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsScrollTool {
-    const NAME: &'static str = ScrollTool::NAME;
-    type Error = ToolError;
-    type Args = ScrollArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        ScrollTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::ScrollTo {
-                x: args.x,
-                y: args.y,
-            },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-struct WsGetPageContentTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsGetPageContentTool {
-    const NAME: &'static str = GetPageContentTool::NAME;
-    type Error = ToolError;
-    type Args = GetPageContentArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        GetPageContentTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::GetPageContent {
-                max_length: args.max_length,
-            },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-struct WsGetInteractiveElementsTool {
-    state: Arc<AppState>,
-    session_id: String,
-}
-
-impl Tool for WsGetInteractiveElementsTool {
-    const NAME: &'static str = GetInteractiveElementsTool::NAME;
-    type Error = ToolError;
-    type Args = GetInteractiveElementsArgs;
-    type Output = String;
-
-    async fn definition(&self, prompt: String) -> ToolDefinition {
-        GetInteractiveElementsTool.definition(prompt).await
-    }
-
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        execute_tool(
-            &self.state,
-            &self.session_id,
-            ActionCommand::GetInteractiveElements { limit: args.limit },
-        )
-        .await
-        .map_err(ToolError)
-    }
-}
-
-async fn execute_tool(
-    state: &Arc<AppState>,
-    session_id: &str,
-    command: ActionCommand,
-) -> Result<String, String> {
-    // 1. Get connection
-    let tx = state
-        .get_connection(session_id)
-        .await
-        .ok_or("No active WebSocket connection for this session")?;
-
-    // 2. Register pending action
-    let request_id = Uuid::new_v4().to_string();
-    let (tx_result, rx_result) = oneshot::channel();
-    state
-        .register_pending_action(request_id.clone(), tx_result)
-        .await;
-
-    // 3. Send command
-    let msg = WsMessage::ActionRequest {
-        request_id: request_id.clone(),
-        command,
-    };
-
-    tx.send(msg)
-        .map_err(|e| format!("Failed to send WebSocket message: {}", e))?;
-    tracing::info!(
-        "Sent ActionRequest[{}] to session {}",
-        request_id,
-        session_id
-    );
-
-    // 4. Wait for result
-    let result = timeout(Duration::from_secs(30), rx_result)
-        .await
-        .map_err(|_| "Tool execution timed out after 30 seconds")?
-        .map_err(|_| "Response channel closed unexpectedly")?;
-
-    // 5. Return result
-    if result.success {
-        Ok(format!("Success. Data: {:?}", result.data))
-    } else {
-        Err(format!("Error: {:?}", result.error))
-    }
-}
 
 // --- Main Handler ---
 
@@ -278,13 +39,35 @@ pub async fn run_agent(
         request.session_id
     );
 
-    // If session_id is provided, use the tool-enabled agent
+    // If session_id is provided, use the tool-enabled agent with STREAMING
     if let Some(session_id) = &request.session_id {
-        tracing::info!("Using tool-enabled agent with session_id: {}", session_id);
-        // Note: For now, we only support non-streaming tool use because Rig's streaming with tools is complex
-        // and needs careful event handling.
+        tracing::info!(
+            "Using streaming tool-enabled agent with session_id: {}",
+            session_id
+        );
 
-        let client = gemini::Client::from_env(); // Create fresh client to build agent
+        // Convert history to Vec<Message>
+        let chat_history: Vec<Message> = if let Some(history) = &request.history {
+            history
+                .iter()
+                .map(|msg| match msg.role.as_str() {
+                    "user" => Message::User {
+                        content: OneOrMany::one(UserContent::text(&msg.content)),
+                    },
+                    "assistant" => Message::Assistant {
+                        id: None,
+                        content: OneOrMany::one(AssistantContent::text(&msg.content)),
+                    },
+                    _ => Message::User {
+                        content: OneOrMany::one(UserContent::text(&msg.content)),
+                    },
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let client = gemini::Client::from_env();
 
         let preamble = r#"You are a browser automation assistant. You can control the browser using tools AND see/analyze screenshots.
 
@@ -320,43 +103,27 @@ pub async fn run_agent(
         let agent = client
             .agent(gemini::completion::GEMINI_2_5_FLASH)
             .preamble(&preamble)
-            .tool(WsNavigateTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .tool(WsClickTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .tool(WsTypeTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .tool(WsScrollTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .tool(WsGetPageContentTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .tool(WsGetInteractiveElementsTool {
-                state: state.clone(),
-                session_id: session_id.clone(),
-            })
-            .default_max_depth(20) // Allow up to 20 tool call rounds for complex actions
+            .tool(WsNavigateTool::new(state.clone(), session_id.clone()))
+            .tool(WsClickTool::new(state.clone(), session_id.clone()))
+            .tool(WsTypeTool::new(state.clone(), session_id.clone()))
+            .tool(WsScrollTool::new(state.clone(), session_id.clone()))
+            .tool(WsGetPageContentTool::new(state.clone(), session_id.clone()))
+            .tool(WsGetInteractiveElementsTool::new(
+                state.clone(),
+                session_id.clone(),
+            ))
+            .default_max_depth(20)
             .build();
 
         // Build the prompt - either text-only or text+image
-        let response: String = if let Some(image_data) = &request.image {
-            // Strip data URL prefix if present (e.g., "data:image/jpeg;base64,")
+        let user_message: Message = if let Some(image_data) = &request.image {
+            // Strip data URL prefix if present
             let base64_data = if let Some(pos) = image_data.find(",") {
                 &image_data[pos + 1..]
             } else {
                 image_data.as_str()
             };
 
-            // Build multimodal message with text + image
             let mut content_parts = vec![UserContent::text(&request.query)];
             content_parts.push(UserContent::image_base64(
                 base64_data,
@@ -364,53 +131,83 @@ pub async fn run_agent(
                 None,
             ));
 
-            let user_message = Message::User {
+            Message::User {
                 content: OneOrMany::many(content_parts).unwrap(),
-            };
-
-            tracing::info!("Sending multimodal prompt (text + image) to agent");
-            match agent.prompt(user_message).await {
-                Ok(text) => text,
-                Err(e) => {
-                    let error_str = e.to_string();
-                    tracing::warn!("Agent multimodal prompt error: {}", error_str);
-                    if error_str.contains("empty") || error_str.contains("no message") {
-                        "Maaf, saya tidak bisa menganalisis gambar ini dalam mode browser automation. Coba matikan fitur Browser Agent untuk analisis gambar.".to_string()
-                    } else {
-                        return Err((StatusCode::INTERNAL_SERVER_ERROR, error_str));
-                    }
-                }
             }
         } else {
-            // Text-only prompt
-            match agent.prompt(&request.query).await {
-                Ok(text) => text,
-                Err(e) => {
-                    let error_str = e.to_string();
-                    tracing::warn!("Agent prompt error: {}", error_str);
-
-                    // Handle empty response error gracefully
-                    if error_str.contains("empty") || error_str.contains("no message") {
-                        "Maaf, saya tidak yakin tindakan apa yang harus dilakukan. Bisa tolong jelaskan lebih spesifik? Contoh:\n- \"isi field email dengan test@example.com\"\n- \"klik tombol Submit\"\n- \"buka halaman google.com\"".to_string()
-                    } else if error_str.contains("MaxDepth") || error_str.contains("depth") {
-                        // Tool execution failed after retries - likely a connection issue
-                        "Maaf, gagal menjalankan aksi browser. Pastikan:\n1. Extension Chrome sudah di-reload\n2. Halaman web sudah terbuka dan aktif\n3. Coba refresh halaman dan ulangi perintah".to_string()
-                    } else {
-                        return Err((StatusCode::INTERNAL_SERVER_ERROR, error_str));
-                    }
-                }
+            Message::User {
+                content: OneOrMany::one(UserContent::text(&request.query)),
             }
         };
 
-        Ok(Json(ChatResponse {
-            response,
-            prompt_tokens: None,
-            response_tokens: None,
-            total_tokens: None,
-        })
-        .into_response())
+        // Use stream_chat for streaming with tools
+        let mut agent_stream = agent.stream_chat(user_message, chat_history).await;
+
+        let sse_stream = stream! {
+            let mut full_response = String::new();
+            let mut token_usage: Option<(u64, u64, u64)> = None;
+
+            while let Some(chunk) = agent_stream.next().await {
+                match chunk {
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
+                        full_response.push_str(&text.text);
+                        yield Ok::<_, String>(Event::default().data(&text.text));
+                    }
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall(tool_call))) => {
+                        // Notify frontend about tool execution
+                        let tool_info = format!(r#"{{"__type":"tool","name":"{}","status":"calling"}}"#, tool_call.function.name);
+                        yield Ok::<_, String>(Event::default().event("tool").data(tool_info));
+                    }
+                    Ok(MultiTurnStreamItem::StreamUserItem(_user_content)) => {
+                        // Tool result - notify frontend
+                        let result_info = r#"{"__type":"tool","status":"completed"}"#;
+                        yield Ok::<_, String>(Event::default().event("tool").data(result_info));
+                    }
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(final_resp))) => {
+                        if let Some(usage) = final_resp.token_usage() {
+                            token_usage = Some((usage.input_tokens, usage.output_tokens, usage.total_tokens));
+                        }
+                    }
+                    Ok(MultiTurnStreamItem::FinalResponse(final_resp)) => {
+                        let usage = final_resp.usage();
+                        token_usage = Some((usage.input_tokens, usage.output_tokens, usage.total_tokens));
+                    }
+                    Ok(_) => {
+                        // Other variants (Reasoning, etc.)
+                    }
+                    Err(e) => {
+                        let error_str = e.to_string();
+                        tracing::warn!("Agent stream error: {}", error_str);
+
+                        // Handle specific errors gracefully
+                        let error_msg = if error_str.contains("empty") || error_str.contains("no message") {
+                            "Maaf, saya tidak yakin tindakan apa yang harus dilakukan.".to_string()
+                        } else if error_str.contains("MaxDepth") || error_str.contains("depth") {
+                            "Maaf, gagal menjalankan aksi browser. Coba refresh halaman.".to_string()
+                        } else {
+                            format!("Error: {}", error_str)
+                        };
+                        yield Ok::<_, String>(Event::default().event("error").data(error_msg));
+                    }
+                }
+            }
+
+            // Send token usage at end
+            if let Some((input, output, total)) = token_usage {
+                let usage_json = format!(
+                    r#"{{"__type":"usage","input_tokens":{},"output_tokens":{},"total_tokens":{}}}"#,
+                    input, output, total
+                );
+                yield Ok::<_, String>(Event::default().event("usage").data(usage_json));
+            }
+
+            yield Ok::<_, String>(Event::default().data("[DONE]"));
+        };
+
+        Ok(Sse::new(sse_stream).into_response())
     } else {
         // Legacy path (no tools, just chat)
+        // TODO: Update state.llm.stream/complete to support chat history
         if request.stream {
             // Return SSE stream
             let llm_stream = state.llm.stream(
@@ -423,7 +220,14 @@ pub async fn run_agent(
                 let mut llm_stream = llm_stream;
                 while let Some(chunk) = llm_stream.next().await {
                     match chunk {
-                        Ok(text) => yield Ok::<_, String>(Event::default().data(text)),
+                        Ok(text) => {
+                            // Check if this is usage metadata (sent at end of stream)
+                            if text.starts_with(r#"{"__type":"usage""#) {
+                                yield Ok::<_, String>(Event::default().event("usage").data(text));
+                            } else {
+                                yield Ok::<_, String>(Event::default().data(text));
+                            }
+                        }
                         Err(e) => yield Ok::<_, String>(Event::default().event("error").data(e)),
                     }
                 }

@@ -24,7 +24,6 @@ pub fn app_router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health_check))
-        .route("/api/chat", post(agent_handler::run_agent))
         .route("/agent/run", post(agent_handler::run_agent))
         .route("/ws", get(ws_handler))
         .with_state(state)

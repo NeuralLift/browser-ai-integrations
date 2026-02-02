@@ -1,6 +1,6 @@
 use rig::OneOrMany;
 use rig::agent::MultiTurnStreamItem;
-use rig::completion::Prompt;
+use rig::completion::{GetTokenUsage, Prompt};
 use rig::message::{ImageMediaType, Message, UserContent};
 use rig::prelude::*;
 use rig::providers::gemini;
@@ -86,15 +86,46 @@ impl GeminiProvider {
 
             let mut rig_stream = agent.stream_prompt(prompt).await;
 
+            let mut chunk_count = 0;
             while let Some(chunk) = rig_stream.next().await {
+                chunk_count += 1;
+                tracing::debug!("Stream chunk #{}: {:?}", chunk_count, std::any::type_name_of_val(&chunk));
                 match chunk {
                     Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
                         yield Ok::<String, String>(text.text);
                     }
-                    Ok(_) => {}
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Final(final_resp))) => {
+                        // Send token usage as special JSON marker at end of stream
+                        // Final response from stream_prompt() contains token usage
+                        tracing::info!("Got StreamedAssistantContent::Final");
+                        if let Some(usage) = final_resp.token_usage() {
+                            tracing::info!("Token usage: in={}, out={}, total={}", usage.input_tokens, usage.output_tokens, usage.total_tokens);
+                            let usage_json = format!(
+                                r#"{{"__type":"usage","input_tokens":{},"output_tokens":{},"total_tokens":{}}}"#,
+                                usage.input_tokens, usage.output_tokens, usage.total_tokens
+                            );
+                            yield Ok::<String, String>(usage_json);
+                        } else {
+                            tracing::warn!("Final response has no token usage");
+                        }
+                    }
+                    Ok(MultiTurnStreamItem::FinalResponse(final_resp)) => {
+                        // This is from multi-turn agent with tools - also has usage
+                        tracing::info!("Got MultiTurnStreamItem::FinalResponse");
+                        let usage = final_resp.usage();
+                        let usage_json = format!(
+                            r#"{{"__type":"usage","input_tokens":{},"output_tokens":{},"total_tokens":{}}}"#,
+                            usage.input_tokens, usage.output_tokens, usage.total_tokens
+                        );
+                        yield Ok::<String, String>(usage_json);
+                    }
+                    Ok(other) => {
+                        tracing::debug!("Got other stream item: {:?}", std::any::type_name_of_val(&other));
+                    }
                     Err(e) => yield Err::<String, String>(e.to_string()),
                 }
             }
+            tracing::info!("Stream ended after {} chunks", chunk_count);
         })
     }
 }
